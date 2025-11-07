@@ -31,7 +31,8 @@ pacman -S --needed \
   ttf-dejavu
 
 pacman -S --needed \
-  tmux
+  tmux \
+  zsh
 
 curl -O https://blackarch.org/strap.sh
 chmod +x strap.sh
