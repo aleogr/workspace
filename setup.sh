@@ -31,6 +31,7 @@ pacman -S --needed \
   ttf-dejavu
 
 pacman -S --needed \
+  firefox \
   tmux \
   zsh
 
