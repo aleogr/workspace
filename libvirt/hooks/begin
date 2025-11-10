@@ -1,0 +1,48 @@
+#!/bin/bash
+# Script de hook para libvirt: executado quando uma VM inicia (hook: started/begin)
+
+# Este script deve estar em /etc/libvirt/hooks/qemu.d/nome-da-vm/started/begin
+#   e ter permissão de execução.
+
+# -------------------------------------
+# 1. Define quais CPUs ficarão disponíveis para o host durante a execução da VM
+# Estas CPUs são reservadas para processos do sistema, o resto será dedicado à VM via pinagem
+HOST_CPUS_WHEN_VM_ONLINE="14,15,24-31"
+
+echo "[Hook] Limitando host às CPUs: $HOST_CPUS_WHEN_VM_ONLINE"
+
+# -------------------------------------
+# 2. Restringe os grupos de cgroups do systemd para usar apenas as CPUs definidas acima
+# Isso evita que o host concorra com a VM nos demais núcleos
+systemctl set-property --runtime -- user.slice AllowedCPUs=$HOST_CPUS_WHEN_VM_ONLINE
+systemctl set-property --runtime -- system.slice AllowedCPUs=$HOST_CPUS_WHEN_VM_ONLINE
+systemctl set-property --runtime -- init.scope AllowedCPUs=$HOST_CPUS_WHEN_VM_ONLINE
+
+# -------------------------------------
+# 3. Define o "governador" da CPU para "performance" em todos os núcleos
+# Garante que os clocks fiquem sempre no máximo durante a execução da VM
+cpupower frequency-set -g performance
+
+# -------------------------------------
+# 4. Configura o ambiente gráfico do usuário para evitar suspensão automática ou tela desligada
+USER_NAME="aleogr"                                 # Nome do usuário logado
+USER_ID=$(id -u "$USER_NAME")                      # UID do usuário
+
+export DISPLAY=:0                                  # Sessão gráfica padrão (Wayland ou X11)
+export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$USER_ID/bus"  # Caminho para o D-Bus da sessão do usuário
+
+# -------------------------------------
+# 5. Desativa temporariamente o tempo de inatividade da sessão (idle/sleep/screen-off)
+# Necessário para evitar que a tela ou o sistema suspendam enquanto a VM estiver ativa
+
+# Desativa o bloqueio da tela por inatividade
+sudo -u "$USER_NAME" DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
+  gsettings set org.gnome.desktop.session idle-delay 0
+
+# Desativa suspensão automática com energia ligada
+sudo -u "$USER_NAME" DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
+  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-timeout 0
+
+# Desativa suspensão automática com bateria (caso esteja em notebook)
+sudo -u "$USER_NAME" DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
+  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-timeout 0

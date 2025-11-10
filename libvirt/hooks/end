@@ -1,0 +1,48 @@
+#!/bin/bash
+# Script de hook do libvirt: executado quando uma VM é desligada (hook: release/end)
+
+# Este script deve estar em /etc/libvirt/hooks/qemu.d/nome-da-vm/release/end
+#   e ter permissão de execução.
+
+# -------------------------------------
+# 1. Libera todas as CPUs para o sistema host novamente
+# Isso reverte a restrição imposta no início da execução da VM
+ALL_CPUS="0-31"
+
+echo "[Hook] Restaurando acesso total às CPUs para o host: $ALL_CPUS"
+
+# Remove a limitação de CPUs para todos os grupos do systemd
+systemctl set-property --runtime -- user.slice AllowedCPUs=$ALL_CPUS
+systemctl set-property --runtime -- system.slice AllowedCPUs=$ALL_CPUS
+systemctl set-property --runtime -- init.scope AllowedCPUs=$ALL_CPUS
+
+# -------------------------------------
+# 2. Volta o governador de frequência para "powersave" (modo economia de energia)
+cpupower frequency-set -g powersave
+
+# -------------------------------------
+# 3. Restaura as configurações padrão de economia de energia e tempo de inatividade do ambiente gráfico
+
+USER_NAME="aleogr"                                 # Nome do usuário logado
+USER_ID=$(id -u "$USER_NAME")                      # UID do usuário
+
+export DISPLAY=:0                                  # Sessão gráfica padrão
+export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$USER_ID/bus"  # Caminho do barramento da sessão
+
+# -------------------------------------
+# 4. Restaura tempos de inatividade e suspensão padrão do GNOME
+
+# Volta a apagar a tela após 15 minutos de inatividade
+sudo -u "$USER_NAME" DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
+  gsettings set org.gnome.desktop.session idle-delay 900  # 15 minutos
+
+# Suspensão após 30 minutos em energia ou bateria
+sudo -u "$USER_NAME" DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
+  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-timeout 1800  # 30 minutos
+
+sudo -u "$USER_NAME" DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
+  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-timeout 1800  # 30 minutos
+
+# Define o tipo de suspensão após o tempo de inatividade (com energia ou com bateria)
+sudo -u "$USER_NAME" DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
+  gsettings set org.gnome.settings-daemon.plugins.power sl

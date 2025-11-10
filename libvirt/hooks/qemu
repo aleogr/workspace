@@ -1,0 +1,43 @@
+#!/bin/bash
+
+# Este script funciona como um dispatcher (distribuidor) de hooks para várias VMs e estados,
+# ou seja, é o ponto de entrada que o libvirt chama quando um evento acontece, e ele vai
+# redirecionar para o(s) script(s) específico(s) daquela VM e estado.
+
+# Este script deve estar em /etc/libvirt/hooks/qemu e ter permissão de execução.
+
+GUEST_NAME="$1"			# Nome da VM (ex: "win11-games")
+HOOK_NAME="$2"			# Nome do hook (ex: "started" ou "release")
+STATE_NAME="$3"			# Estado do hook (ex: "begin", "end")
+MISC="${@:4}"			# Argumentos extras que o libvirt passar para o hook
+BASEDIR="$(dirname $0)"		# Diretório onde o script principal está (ex: /etc/libvirt/hooks)
+
+# Caminho para o script específico:  
+# /etc/libvirt/hooks/qemu.d/<nome-da-vm>/<nome-do-hook>/<estado>
+
+HOOKPATH="$BASEDIR/qemu.d/$GUEST_NAME/$HOOK_NAME/$STATE_NAME"
+
+set -e  # Faz o script sair imediatamente se algum comando falhar (boa prática)
+
+if [ -f "$HOOKPATH" ] && [ -s "$HOOKPATH" ] && [ -x "$HOOKPATH" ]; then
+
+	# Se HOOKPATH for um arquivo existente, não vazio e executável,
+	# executa ele passando os argumentos do hook
+	eval \"$HOOKPATH\" "$@"
+
+elif [ -d "$HOOKPATH" ]; then
+
+	# Se HOOKPATH for um diretório (ex: com múltiplos scripts dentro)...
+	while read file; do
+
+		# Para cada arquivo nesse diretório...
+		if [ ! -z "$file" ]; then
+
+			# executa ele passando os argumentos
+			eval \"$file\" "$@"
+
+		fi
+	
+	# Busca apenas arquivos executáveis dentro do diretório (sem recursão)
+	done <<< "$(find -L "$HOOKPATH" -maxdepth 1 -type f -executable -print;)"
+fi
