@@ -69,7 +69,7 @@ Se quiser automatizar isso com ```whoami```, é possível, mas pode causar falha
 sudo systemctl restart libvirtd.service
 ```
 
-6. ✅ Teste o funcionamento
+5. ✅ Teste o funcionamento
 - Inicie a VM com virsh start nome-da-vm
 - Verifique se o script started/begin foi executado (journalctl, dmesg, echo)
 - Desligue a VM e veja se release/end restaura o sistema
