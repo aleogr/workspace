@@ -64,7 +64,7 @@ USER_NAME="aleogr"
 ```
 Se quiser automatizar isso com ```whoami```, é possível, mas pode causar falhas se o script for chamado fora de sessão gráfica.
 
-4. Reinicie o libvirtd.service
+4. 🔁 Reinicie o libvirtd.service
 ```bash
 sudo systemctl restart libvirtd.service
 ```
