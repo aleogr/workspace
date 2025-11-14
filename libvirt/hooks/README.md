@@ -64,7 +64,12 @@ USER_NAME="aleogr"
 ```
 Se quiser automatizar isso com ```whoami```, é possível, mas pode causar falhas se o script for chamado fora de sessão gráfica.
 
-4. ✅ Teste o funcionamento
+4. Reinicie o libvirtd.service
+```bash
+sudo systemctl restart libvirtd.service
+```
+
+6. ✅ Teste o funcionamento
 - Inicie a VM com virsh start nome-da-vm
 - Verifique se o script started/begin foi executado (journalctl, dmesg, echo)
 - Desligue a VM e veja se release/end restaura o sistema
