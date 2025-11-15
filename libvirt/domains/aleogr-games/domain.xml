@@ -10,12 +10,8 @@
 	</metadata>
 	<os>
 		<type arch="x86_64" machine="q35">hvm</type>
-		<loader readonly="yes" secure="yes" type="pflash">
-			/usr/share/OVMF/OVMF_CODE_4M.secbook.fd
-		</loader>
-		<nvram template="/usr/share/OVMF/OVMF_VARS_4M.fd" templateFormat="raw" format="raw">
-			/var/lib/libvirt/qemu/nvram/aleogr-games_VARS.fd
-		</nvram>
+		<loader readonly="yes" secure="yes" type="pflash">/usr/share/OVMF/OVMF_CODE_4M.secbook.fd</loader>
+		<nvram template="/usr/share/OVMF/OVMF_VARS_4M.fd" templateFormat="raw" format="raw">/var/lib/libvirt/qemu/nvram/aleogr-games_VARS.fd</nvram>
 		<boot dev="hd"/>
 		<boot dev="cdrom"/>
 		<bootmenu enable="yes"/>
