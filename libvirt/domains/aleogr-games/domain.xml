@@ -1,7 +1,7 @@
 <domain type="kvm">
-	<name>win11-games</name>
+	<name>aleogr-games</name>
   	# Gerar um uuid com o comando uuidgen
-	<uuid>???</uuid>
+	<uuid>23b09fb4-bc69-43e6-b5ad-0a18fa92cced</uuid>
 	<metadata>
 		<libosinfo:libosinfo
 			xmlns:libosinfo="http://libosinfo.org/xmlns/libvirt/domain/1.0">
@@ -10,8 +10,8 @@
 	</metadata>
 	<os>
 		<type arch="x86_64" machine="q35">hvm</type>
-		<loader readonly="yes" secure="yes" type="pflash">/usr/share/edk2/x64/OVMF_CODE.secboot.4m.fd</loader>
-		<nvram template="/usr/share/edk2/x64/OVMF_VARS.4m.fd" templateFormat="raw" format="raw">/var/lib/libvirt/qemu/nvram/win11-games_VARS.fd</nvram>
+		<loader readonly="yes" secure="yes" type="pflash">/usr/share/OVMF/OVMF_CODE_4M.secbook.fd</loader>
+		<nvram template="/usr/share/OVMF/OVMF_VARS_4M.fd" templateFormat="raw" format="raw">/var/lib/libvirt/qemu/nvram/aleogr-games_VARS.fd</nvram>
 		<boot dev="hd"/>
 		<boot dev="cdrom"/>
 		<bootmenu enable="yes"/>
@@ -87,18 +87,18 @@
 		</tpm>
 		<disk type="file" device="disk">
 			<driver name="qemu" type="qcow2"/>
-			<source file="/var/lib/libvirt/images/win11-games.qcow2"/>
+			<source file="/var/lib/libvirt/images/aleogr-games.qcow2"/>
 			<target dev="vda" bus="virtio"/>
 		</disk>
 		<disk type="file" device="cdrom">
 			<driver name="qemu" type="raw"/>
-			<source file="/home/aleogr/Downloads/Imagens ISO/Windows 11 24H2.iso"/>
+			<source file="/home/aleogr/ISO/amd64/Windows 11 24H2.iso"/>
 			<target dev="sdb" bus="sata"/>
 			<readonly/>
 		</disk>
 		<disk type="file" device="cdrom">
 			<driver name="qemu" type="raw"/>
-			<source file="/home/aleogr/Downloads/Imagens ISO/virtio-win-0.1.229.iso"/>
+			<source file="/home/aleogr/ISO/amd64/virtio-win-0.1.285.iso"/>
 			<target dev="sdc" bus="sata"/>
 			<readonly/>
 		</disk>
@@ -113,7 +113,7 @@
 			<source dev="/dev/input/by-id/usb-Logitech_USB_Receiver-if02-event-mouse"/>
 		</input>
 		<input type="evdev">
-			<source dev="/dev/input/by-id/usb-Primax_Dell_KB216_Wired_Keyboard-event-kbd" grab="all" repeat="on" grabToggle="ctrl-ctrl"/>
+			<source dev="/dev/input/by-id/usb-SEM_USB_Keyboard-event-kbd" grab="all" repeat="on" grabToggle="ctrl-ctrl"/>
 		</input>
 		<hostdev mode="subsystem" type="pci" managed="yes">
 			<source>
