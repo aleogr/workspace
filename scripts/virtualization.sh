@@ -20,5 +20,11 @@ apt install \
 	bridge-utils \
 	virt-manager \
 	ovmf
+
 usermod -aG kvm,libvirt aleogr
 systemctl enable --now libvirtd
+
+touch /var/log/libvirt-hook.log
+cp -r hooks /etc/libvirt/
+
+exit 0
