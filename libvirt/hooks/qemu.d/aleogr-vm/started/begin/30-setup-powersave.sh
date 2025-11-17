@@ -1,0 +1,26 @@
+#!/bin/bash
+
+exec >> /var/log/libvirt-hook.log 2>&1
+
+echo "[Hook] Definindo governador da CPU para 'performance'"
+
+cpupower frequency-set -g performance
+
+echo "[Hook] Desabilitando suspensão/ociosidade do GNOME no host..."
+
+USER_NAME="aleogr"
+USER_ID=$(id -u "$USER_NAME")
+
+export DISPLAY=:0
+export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$USER_ID/bus"
+
+sudo -u "$USER_NAME" DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
+  gsettings set org.gnome.desktop.session idle-delay 0
+
+sudo -u "$USER_NAME" DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
+  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-timeout 0
+
+sudo -u "$USER_NAME" DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
+  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-timeout 0
+
+exit 0
