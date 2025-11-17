@@ -1,6 +1,7 @@
 #!/bin/bash
 
 apt install -y \
+  firmware-misc-nonfree \
   nvidia-kernel-dkms
 
 cat << EOF > /etc/modprobe.d/99-blacklist-nvidia-vfio.conf
