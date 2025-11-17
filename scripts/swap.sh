@@ -1,7 +1,7 @@
 #!/bin/bash
 
 SWAP_FILE="/swap/swapfile"
-SWAP_FILE_SIZE=59605
+SWAP_FILE_SIZE=64007
 
 touch "$SWAP_FILE"
 chmod 600 "$SWAP_FILE"
