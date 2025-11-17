@@ -6,7 +6,7 @@
 
 # Este script deve estar em /etc/libvirt/hooks/qemu e ter permissão de execução.
 
-GUEST_NAME="$1"			# Nome da VM (ex: "win11-games")
+GUEST_NAME="$1"			# Nome da VM (ex: "aleogr-vm")
 HOOK_NAME="$2"			# Nome do hook (ex: "started" ou "release")
 STATE_NAME="$3"			# Estado do hook (ex: "begin", "end")
 MISC="${@:4}"			# Argumentos extras que o libvirt passar para o hook
