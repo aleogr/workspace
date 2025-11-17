@@ -2,4 +2,5 @@
 
 apt update && apt upgrade
 apt install \
-	build-essential
+	build-essential \
+	nvidia-kernel-dkms
