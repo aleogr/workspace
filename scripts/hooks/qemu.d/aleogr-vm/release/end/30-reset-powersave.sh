@@ -19,10 +19,4 @@ sudo -u "$USER_NAME" DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
 sudo -u "$USER_NAME" DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
   gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-timeout 1800
 
-sudo -u "$USER_NAME" DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
-  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 'suspend'
-
-sudo -u "$USER_NAME" DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
-  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type 'suspend'
-
 exit 0
