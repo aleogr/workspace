@@ -2,11 +2,7 @@
 
 exec >> /var/log/libvirt-hook.log 2>&1
 
-echo "[Hook] Definindo governador da CPU para 'performance'"
-
 cpupower frequency-set -g performance
-
-echo "[Hook] Desabilitando suspensão/ociosidade do GNOME no host..."
 
 USER_NAME="aleogr"
 USER_ID=$(id -u "$USER_NAME")
