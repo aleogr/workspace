@@ -1,74 +1,46 @@
 #!/bin/bash
+# =================================================================
+# SCRIPT 1: PREPARAÇÃO DE INFRAESTRUTURA (RODAR UMA VEZ)
+# =================================================================
 
-# ==============================================================================
-# SCRIPT DE PROVISIONAMENTO DE STORAGE ZFS PROXMOX
-# ==============================================================================
-# Este script automatiza:
-# 1. Criação do Pool ZFS (zpool)
-# 2. Criação dos Datasets (vms e backups)
-# 3. Cadastro dos Storages no Proxmox (pvesm)
-# ==============================================================================
-
-# --- CONFIGURAÇÕES (EDITE AQUI) ---
-
-# No VirtualBox geralmente é /dev/sdb.
-# No seu PC real será o ID: /dev/disk/by-id/nvme-WDS...
-DISK_DEVICE="/dev/sdb"  
+# --- CONFIGURAÇÕES ---
+# No VirtualBox: /dev/sdb (Geralmente)
+# No PC Real: /dev/disk/by-id/nvme-WDS200T2X0E...
+DISK_DEVICE="/dev/sdb" 
 
 POOL_NAME="tank"
-DATASET_VMS="vms"
-DATASET_BACKUP="backups"
+STORAGE_ID_VM="VM-Storage"
+STORAGE_ID_BACKUP="Backup-Storage"
 
-# Nomes que aparecerão na Interface Web do Proxmox
-ID_STORAGE_VM="vm-storage"
-ID_STORAGE_BACKUP="backup-storage"
+# --- SEGURANÇA ---
+echo "!!! PERIGO: ISSO VAI FORMATAR O DISCO $DISK_DEVICE !!!"
+echo "Pressione Enter para continuar ou Ctrl+C para cancelar."
+read
 
-# --- INÍCIO DO SCRIPT ---
+# 1. Limpeza
+echo "[1/5] Limpando disco..."
+sgdisk --zap-all $DISK_DEVICE > /dev/null 2>&1
+wipefs -a $DISK_DEVICE > /dev/null 2>&1
 
-echo "!!! ATENÇÃO !!!"
-echo "Este script irá FORMATAR e DESTRUIR todos os dados em: $DISK_DEVICE"
-echo "Você tem 5 segundos para cancelar (Ctrl+C)..."
-sleep 5
-
-echo "=== 1. LIMPANDO O DISCO ==="
-# Remove tabelas de partição antigas para evitar erros de "disk busy"
-sgdisk --zap-all $DISK_DEVICE
-wipefs -a $DISK_DEVICE
-echo "-> Disco limpo."
-
-echo "=== 2. CRIANDO O POOL ZFS ('$POOL_NAME') ==="
-# -f: Força a criação
-# ashift=12: Otimização para SSD/NVMe (4k)
-# compression=lz4: Compressão ativa no pool todo
-# acltype=posixacl: Boa prática para permissões Linux
+# 2. Criar Pool ZFS
+echo "[2/5] Criando Pool ZFS '$POOL_NAME'..."
+# NOTA: Para ativar criptografia no PC REAL, adicione estas flags na linha abaixo:
+# -O encryption=aes-256-gcm -O keyformat=passphrase -O keylocation=prompt
 zpool create -f -o ashift=12 -O compression=lz4 -O acltype=posixacl -O xattr=sa $POOL_NAME $DISK_DEVICE
-echo "-> Pool '$POOL_NAME' criado."
 
-echo "=== 3. CRIANDO OS DATASETS (DIVISÕES LÓGICAS) ==="
-# Dataset para discos de VM
-zfs create $POOL_NAME/$DATASET_VMS
-echo "-> Dataset '$POOL_NAME/$DATASET_VMS' criado."
+# 3. Criar Datasets (Pastas Lógicas)
+echo "[3/5] Criando Datasets..."
+zfs create $POOL_NAME/vms       # Para discos de VM
+zfs create $POOL_NAME/backups   # Para arquivos de Backup
 
-# Dataset para arquivos de Backup
-zfs create $POOL_NAME/$DATASET_BACKUP
-echo "-> Dataset '$POOL_NAME/$DATASET_BACKUP' criado."
+# 4. Adicionar Storage de VM (ZFS Nativo)
+echo "[4/5] Configurando Storage de VMs..."
+# --sparse 1 ativa o Thin Provisioning (economiza espaço)
+pvesm add zfspool $STORAGE_ID_VM --pool $POOL_NAME/vms --content images,rootdir --sparse 1
 
-echo "=== 4. REGISTRANDO STORAGE DE VMs NO PROXMOX ==="
-# pvesm add zfspool: Adiciona storage tipo ZFS
-# --pool: Aponta para o dataset específico
-# --content: Define que aceita imagens de disco e containers
-# --sparse 1: Ativa Thin Provisioning
-pvesm add zfspool $ID_STORAGE_VM --pool $POOL_NAME/$DATASET_VMS --content images,rootdir --sparse 1
-echo "-> Storage '$ID_STORAGE_VM' registrado."
+# 5. Adicionar Storage de Backup (Diretório)
+echo "[5/5] Configurando Storage de Backups..."
+# --content define que aceita backups e ISOs
+pvesm add dir $STORAGE_ID_BACKUP --path /$POOL_NAME/backups --content backup,iso,vztmpl
 
-echo "=== 5. REGISTRANDO STORAGE DE BACKUP NO PROXMOX ==="
-# pvesm add dir: Adiciona storage tipo Diretório
-# --path: Aponta para onde o ZFS montou o dataset (padrão é /nome_do_pool/nome_dataset)
-# --content: Define que aceita backups, ISOs e templates
-pvesm add dir $ID_STORAGE_BACKUP --path /$POOL_NAME/$DATASET_BACKUP --content backup,iso,vztmpl
-echo "-> Storage '$ID_STORAGE_BACKUP' registrado."
-
-echo "=================================================="
-echo "       INSTALAÇÃO CONCLUÍDA COM SUCESSO"
-echo "=================================================="
-echo "Verifique no menu lateral da interface web."
+echo "✅ Infraestrutura pronta!"
