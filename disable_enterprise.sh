@@ -2,8 +2,8 @@
 
 # Lista dos arquivos que queremos comentar
 FILES=(
-    "/etc/apt/sources.list.d/pve-enterprise.list"
-    "/etc/apt/sources.list.d/ceph.list"
+    "/etc/apt/sources.list.d/pve-enterprise.sources"
+    "/etc/apt/sources.list.d/ceph.sources"
 )
 
 echo "Iniciando o processo de comentar repositórios Enterprise..."
@@ -21,5 +21,6 @@ for file in "${FILES[@]}"; do
         echo "[INFO] O arquivo $file não foi encontrado. Pulando."
     fi
 done
+
 
 echo "Concluído."
