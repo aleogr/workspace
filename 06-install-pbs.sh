@@ -21,7 +21,9 @@ echo ">>> [3/4] Criando Datastore no PBS..."
 proxmox-backup-manager datastore create $DATASTORE_NAME $ZFS_PATH
 
 echo ">>> [4/4] Conectando PVE ao PBS (Localhost)..."
-FINGERPRINT=$(proxmox-backup-manager cert info | grep "Fingerprint" | awk '{print $2}')
+FINGERPRINT=$(proxmox-backup-manager cert info | grep "Fingerprint" | awk '{print $NF}')
+
+echo "Fingerprint detectado: $FINGERPRINT"
 
 echo "Precisamos da senha do ROOT para conectar o PVE ao PBS:"
 read -s PBS_PASSWORD
