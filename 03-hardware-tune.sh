@@ -1,50 +1,66 @@
 #!/bin/bash
-# 03-hardware-tune.sh
-# Objetivo: Ajuste fino de Kernel e ZFS.
+# 03-hardware-tune.sh (Versão Ultimate Passthrough)
+# Objetivo: Otimizar Kernel i9/NVMe, ZFS RAM e Automatizar Isolamento de GPU.
 
-# --- VARIÁVEIS DE CONFIGURAÇÃO (EDITE AQUI) ---
-ZFS_ARC_GB=8            # Limite de RAM para o ZFS em Gigabytes
-CPU_VENDOR="intel"      # "intel" ou "amd"
-# ----------------------------------------------
+# --- VARIÁVEIS ---
+ZFS_ARC_GB=8       # Limite de RAM para ZFS
+CPU_VENDOR="intel" # intel ou amd
+# -----------------
 
-echo ">>> [1/4] Calculando parâmetros..."
+set -e
 
-# 1. Define IOMMU baseado no vendor
-if [ "$CPU_VENDOR" == "intel" ]; then
-    IOMMU_FLAG="intel_iommu=on"
-else
-    IOMMU_FLAG="amd_iommu=on"
-fi
-
-# 2. Converte GB para Bytes para o ZFS (GB * 1024^3)
+echo ">>> [1/6] Calculando parâmetros básicos..."
+if [ "$CPU_VENDOR" == "intel" ]; then IOMMU_FLAG="intel_iommu=on"; else IOMMU_FLAG="amd_iommu=on"; fi
 ZFS_BYTES=$(($ZFS_ARC_GB * 1024 * 1024 * 1024))
-echo "Target ZFS ARC: ${ZFS_ARC_GB}GB ($ZFS_BYTES bytes)"
 
-echo ">>> [2/4] Aplicando Parâmetros de Kernel..."
-# Backup
+echo ">>> [2/6] Aplicando Parâmetros de Boot (Kernel)..."
 cp /etc/kernel/cmdline /etc/kernel/cmdline.bak
 
-# Lista de parâmetros vitais para seu i9-13900K + 3090 Ti + WD SN850X
-# split_lock_detect=off -> Vital para jogos no i9
-# nvme_core... -> Vital para WD SN850X
-# video=... -> Vital para evitar Host Hijack da GPU
+# Explicação dos Parâmetros:
+# iommu=pt : Pass-through mode (melhor performance)
+# pci=noaer : Evita inundação de logs de erro PCIe
+# nvme_core... : Fix para WD SN850X não travar em low-power
+# split_lock... : Fix para i9-13900K não travar em jogos
+# video=... : Desliga drivers de vídeo do Linux para liberar a GPU
 CMDLINE="$IOMMU_FLAG iommu=pt pci=noaer nvme_core.default_ps_max_latency_us=0 split_lock_detect=off video=efifb:off video=vesafb:off video=simplefb:off"
 
 echo "root=ZFS=rpool/ROOT/pve-1 boot=zfs $CMDLINE" > /etc/kernel/cmdline
 proxmox-boot-tool refresh
 echo "[OK] Bootloader atualizado."
 
-echo ">>> [3/4] Configurando ZFS..."
-echo "options zfs zfs_arc_max=$ZFS_BYTES" > /etc/modprobe.d/zfs.conf
-update-initramfs -u
-echo "[OK] Limite de memória ZFS aplicado."
+echo ">>> [3/6] Aplicando Fix KVM para Windows no i9 (MSRs)..."
+echo "options kvm ignore_msrs=1 report_ignored_msrs=0" > /etc/modprobe.d/kvm.conf
+echo "[OK] Fix MSRs aplicado."
 
-echo ">>> [4/4] Configurando Blacklist Nvidia..."
-cat <<EOF > /etc/modprobe.d/blacklist.conf
+echo ">>> [4/6] Configurando Limite de RAM ZFS..."
+echo "options zfs zfs_arc_max=$ZFS_BYTES" > /etc/modprobe.d/zfs.conf
+echo "[OK] ZFS limitado a ${ZFS_ARC_GB}GB."
+
+echo ">>> [5/6] Automatizando Isolamento da GPU (VFIO)..."
+update-pciids > /dev/null 2>&1 || true
+
+GPU_IDS=$(lspci -nn | grep -i nvidia | grep -oP '\[\K[0-9a-f]{4}:[0-9a-f]{4}(?=\])' | tr '\n' ',' | sed 's/,$//')
+
+if [ -z "$GPU_IDS" ]; then
+    echo "[AVISO] Nenhuma GPU Nvidia detectada! Pulando configuração VFIO."
+    echo "Se você estiver rodando isso no VirtualBox, é normal."
+else
+    echo "GPU Nvidia detectada com IDs: $GPU_IDS"
+    echo "options vfio-pci ids=$GPU_IDS disable_vga=1" > /etc/modprobe.d/vfio.conf
+    echo "vfio" > /etc/modules
+    echo "vfio_iommu_type1" >> /etc/modules
+    echo "vfio_pci" >> /etc/modules
+    echo "vfio_virqfd" >> /etc/modules
+    cat <<EOF > /etc/modprobe.d/blacklist.conf
 blacklist nouveau
 blacklist nvidia
 blacklist nvidia_drm
 blacklist nvidia_modeset
 EOF
+    echo "[OK] GPU isolada e drivers Nvidia bloqueados no Host."
+fi
 
-echo "✅ Otimizações aplicadas! REINICIE O SERVIDOR."
+echo ">>> [6/6] Atualizando Initramfs..."
+update-initramfs -u -k all
+
+echo "✅ Otimizações de Hardware Concluídas! REINICIE AGORA."
