@@ -21,7 +21,6 @@ if [ -f /etc/apt/sources.list ]; then
 fi
 
 echo ">>> [2/6] Criando Repositórios BASE DEBIAN (Debian.sources)..."
-# Adicionado 'non-free' além de 'non-free-firmware' para compatibilidade máxima
 cat <<EOF > /etc/apt/sources.list.d/debian.sources
 Types: deb
 URIs: http://deb.debian.org/debian
@@ -58,7 +57,6 @@ echo ">>> [5/6] Atualizando sistema (Dist-Upgrade)..."
 apt dist-upgrade -y
 
 echo ">>> [6/6] Instalando Intel Microcode e Ferramentas..."
-# Removido 'software-properties-common' (desnecessário já que gerenciamos repos manualmente)
 apt install -y intel-microcode build-essential pve-headers vim htop btop curl git
 
 echo ">>> Limpeza final..."
