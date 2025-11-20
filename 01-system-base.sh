@@ -60,7 +60,7 @@ echo ">>> [5/6] Atualizando sistema..."
 apt dist-upgrade -y
 
 echo ">>> [6/6] Instalando Ferramentas Base..."
-apt install -y intel-microcode build-essential pve-headers vim htop btop curl git
+apt install -y intel-microcode build-essential pve-headers vim htop btop curl git fastfetch
 
 echo ">>> Limpeza..."
 apt autoremove -y && apt clean
