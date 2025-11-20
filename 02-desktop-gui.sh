@@ -1,6 +1,6 @@
 #!/bin/bash
-# 02-desktop-setup.sh
-# Objetivo: Instalar Interface Gráfica e criar usuário.
+# 02-desktop-gui.sh
+# Objetivo: Instalar Interface Gráfica, Xorg Drivers e criar usuário.
 
 # --- VARIÁVEIS DE CONFIGURAÇÃO ---
 NEW_USER="aleogr"
@@ -21,8 +21,8 @@ if [ "$PASSWORD" != "$PASSWORD_CONFIRM" ]; then
     exit 1
 fi
 
-echo ">>> [1/3] Instalando XFCE, LightDM e Chromium..."
-apt install -y xfce4 xfce4-goodies lightdm chromium sudo --no-install-recommends
+echo ">>> [1/3] Instalando XFCE, LightDM, Chromium e Drivers de Vídeo..."
+apt install -y xfce4 xfce4-goodies lightdm chromium sudo xorg xserver-xorg-video-all xserver-xorg-input-all --no-install-recommends
 
 echo ">>> [2/3] Configurando usuário $NEW_USER..."
 if id "$NEW_USER" &>/dev/null; then
