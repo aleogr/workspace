@@ -22,7 +22,7 @@ sgdisk --zap-all "$DISK_DEVICE" > /dev/null
 wipefs -a "$DISK_DEVICE" > /dev/null
 
 echo ">>> [2/4] Criando Pool ZFS '$POOL_NAME'..."
-ZPOOL_ARGS="-f -o ashift=12 -O compression=lz4 -O atime=off -O autotrim=on -O acltype=posixacl -O xattr=sa"
+ZPOOL_ARGS="-f -o ashift=12 -o autotrim=on -O compression=lz4 -O atime=off -O acltype=posixacl -O xattr=sa"
 
 if [ "$ENABLE_ENCRYPTION" == "yes" ]; then
     echo "--> Criptografia ATIVADA. Defina a senha:"
