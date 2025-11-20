@@ -1,26 +1,60 @@
 #!/bin/bash
 
-# Lista dos arquivos que queremos comentar
-FILES=(
+# --- CONFIGURAÇÃO ---
+FILES_TO_DISABLE=(
     "/etc/apt/sources.list.d/pve-enterprise.sources"
     "/etc/apt/sources.list.d/ceph.sources"
 )
 
-echo "Iniciando o processo de comentar repositórios Enterprise..."
+MAIN_LIST="/etc/apt/sources.list"
 
-for file in "${FILES[@]}"; do
+# --- PASSO 1: Comentar repositórios Enterprise ---
+echo ">>> [1/3] Processando arquivos Enterprise..."
+
+for file in "${FILES_TO_DISABLE[@]}"; do
     if [ -f "$file" ]; then
-        # Faz um backup antes de alterar (boa prática)
+        # Backup
         cp "$file" "$file.bak"
         
-        # O comando sed adiciona um # no início de qualquer linha que NÃO comece com #
+        # Comenta linhas que não começam com #
         sed -i 's/^[^#]/#&/' "$file"
-        
-        echo "[OK] Arquivo $file comentado com sucesso."
+        echo "[OK] Desativado: $file"
     else
-        echo "[INFO] O arquivo $file não foi encontrado. Pulando."
+        echo "[SKIP] Arquivo não existe: $file"
     fi
 done
 
+# --- PASSO 2: Adicionar Repositórios No-Subscription ---
+echo ">>> [2/3] Verificando repositórios No-Subscription em $MAIN_LIST..."
 
-echo "Concluído."
+# Função para inserir o bloco de texto apenas se não encontrar uma palavra-chave
+add_repo_if_missing() {
+    local keyword="$1"
+    local content="$2"
+
+    if grep -q "$keyword" "$MAIN_LIST"; then
+        echo "[INFO] Repositório contendo '$keyword' já existe. Nada a fazer."
+    else
+        echo "" >> "$MAIN_LIST"
+        echo -e "$content" >> "$MAIN_LIST"
+        echo "[OK] Adicionado bloco: $keyword"
+    fi
+}
+
+# Conteúdo para o PVE (Trixie)
+PVE_CONTENT="# PVE No-Subscription (Gratuito)
+deb http://download.proxmox.com/debian/pve trixie pve-no-subscription"
+
+# Conteúdo para o Ceph (Squid/Trixie)
+CEPH_CONTENT="# Ceph No-Subscription (Gratuito) - Importante para evitar conflito de versões
+deb http://download.proxmox.com/debian/ceph-squid trixie no-subscription"
+
+# Executa as verificações
+add_repo_if_missing "pve-no-subscription" "$PVE_CONTENT"
+add_repo_if_missing "ceph-squid" "$CEPH_CONTENT"
+
+# --- PASSO 3: Atualizar ---
+echo ">>> [3/3] Atualizando listas do apt..."
+apt update
+
+echo ">>> Concluído com sucesso."
