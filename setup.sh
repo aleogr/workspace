@@ -1,5 +1,5 @@
 #!/bin/bash
 
-apt install xfce4 chromium -y
+apt install xfce4 chromium lightdm -y
 adduser aleogr
-startx
+systemctl start lightdm
