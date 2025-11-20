@@ -1,21 +1,34 @@
 #!/bin/bash
-# 05-final-polish.sh
-# Objetivo: Ajustar uso de Swap (Swappiness) para priorizar performance do ZFS.
+# =================================================================
+# 05-final-polish.sh (Versão Corrigida - Systemd Style)
+# Objetivo: Ajustar uso de Swap usando diretórios de configuração modernos.
+# =================================================================
 
-echo ">>> Ajustando Swappiness (Evitar uso de disco desnecessário)..."
+set -e
 
-# O padrão do Linux é 60. Para servidores ZFS, recomendamos entre 1 e 10.
-# Isso diz ao Linux: "Só use o arquivo de troca se a RAM estiver CRITICAMENTE cheia".
+echo ">>> Ajustando Swappiness (Priorizar RAM ao invés de Disco)..."
 
-# Aplica na hora
-sysctl vm.swappiness=10
+# VALOR IDEAL:
+# 60 = Padrão Desktop (Usa swap cedo)
+# 10 = Recomendado para ZFS (Usa swap só em emergência)
+SWAP_VALUE=10
 
-# Torna permanente
-if grep -q "vm.swappiness" /etc/sysctl.conf; then
-    sed -i 's/^vm.swappiness.*/vm.swappiness=10/' /etc/sysctl.conf
-else
-    echo "vm.swappiness=10" >> /etc/sysctl.conf
-fi
+# 1. Aplica na hora (Runtime)
+sysctl vm.swappiness=$SWAP_VALUE
 
-echo "✅ Swappiness configurado para 10."
-echo "Setup Completo! Seu Proxmox está pronto para produção."
+# 2. Torna permanente (Persistência)
+# Em vez de editar /etc/sysctl.conf, criamos um arquivo dedicado em .d
+# Isso é mais limpo e evita erros de "File not found".
+
+CONFIG_FILE="/etc/sysctl.d/99-pve-swappiness.conf"
+
+echo "# Configuração customizada para Proxmox ZFS" > "$CONFIG_FILE"
+echo "vm.swappiness=$SWAP_VALUE" >> "$CONFIG_FILE"
+
+echo ">>> Configuração salva em: $CONFIG_FILE"
+
+# Recarrega as configurações de sistema para garantir
+sysctl --system > /dev/null
+
+echo "✅ Swappiness configurado para $SWAP_VALUE."
+echo "🚀 Setup Completo! Seu Proxmox está pronto para produção."
