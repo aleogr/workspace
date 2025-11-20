@@ -1,12 +1,10 @@
 #!/bin/bash
 # 02-desktop-gui.sh
-# Objetivo: Instalar Interface Gráfica, Xorg Drivers e criar usuário.
 
 # --- VARIÁVEIS DE CONFIGURAÇÃO ---
 NEW_USER="aleogr"
 # ---------------------------------
 
-# Verifica se está rodando como root
 if [ "$EUID" -ne 0 ]; then echo "Por favor, rode como root"; exit 1; fi
 
 echo "=== CONFIGURAÇÃO DE USUÁRIO ==="
@@ -35,24 +33,23 @@ else
     echo "[OK] Usuário criado."
 fi
 
-echo ">>> [3/3] Configurando Autostart do Proxmox..."
+echo ">>> [3/3] Configurando Autostart do Proxmox (Modo Quiosque)..."
 AUTOSTART_DIR="/home/$NEW_USER/.config/autostart"
 mkdir -p "$AUTOSTART_DIR"
 
 cat <<EOF > "$AUTOSTART_DIR/proxmox-ui.desktop"
 [Desktop Entry]
 Type=Application
-Name=Proxmox UI
-Exec=chromium --no-sandbox --ignore-certificate-errors --app=https://localhost:8006
+Name=Proxmox Kiosk
+Exec=chromium --kiosk --no-sandbox --ignore-certificate-errors https://localhost:8006 https://localhost:8007
 StartupNotify=false
 Terminal=false
 EOF
 
-# Corrige permissões
 chown -R "$NEW_USER:$NEW_USER" "/home/$NEW_USER/.config"
 
-# Ativa o display manager
 systemctl enable lightdm
 systemctl start lightdm
 
-echo "✅ Desktop Configurado!"
+echo "✅ Desktop Configurado em Modo Quiosque!"
+echo "Use 'Ctrl + Tab' para alternar entre as abas (PVE e PBS)."
