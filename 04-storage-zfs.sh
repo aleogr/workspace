@@ -3,7 +3,7 @@
 # Objetivo: Provisionar ZFS e Datasets (Sem adicionar VZDump).
 
 # --- CONFIGURAÇÕES ---
-DISK_DEVICE="/dev/sdb" # <-- No PC Real use o ID!
+DISK_DEVICE="/dev/sdb" # No seu PC real será o ID: /dev/disk/by-id/nvme-WDS...
 POOL_NAME="tank"
 STORAGE_ID_VM="VM-Storage"
 ENABLE_ENCRYPTION="yes"
