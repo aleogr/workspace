@@ -49,7 +49,5 @@ add_repo_if_missing "pve-no-subscription" "$PVE_CONTENT"
 add_repo_if_missing "ceph-squid" "$CEPH_CONTENT"
 
 # --- PASSO 3: Atualizar ---
-echo ">>> [3/3] Atualizando listas do apt..."
-apt update
-
-echo ">>> Concluído! Agora você pode rodar 'apt dist-upgrade' para atualizar o sistema."
+echo ">>> [3/3] Atualizando o sistema"
+apt update && apt dist-upgrade -y
