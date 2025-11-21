@@ -1,8 +1,9 @@
 #!/bin/bash
 # ==============================================================================
-# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final Gold 2.6)
+# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final Gold 2.7)
 # ==============================================================================
-# Correções: Sintaxe de aspas blindada (HereDoc), Sed corrigido e GUI ajustada.
+# Automação completa para Workstation Proxmox com Passthrough e ZFS.
+# Correções: Proteção contra formatação sem reboot e Menu claro.
 # ==============================================================================
 
 # --- VARIÁVEIS GLOBAIS (EDITE AQUI) ---
@@ -33,7 +34,7 @@ RD=$(echo "\033[01;31m")
 GN=$(echo "\033[1;92m")
 CL=$(echo "\033[m")
 
-# Função de Cabeçalho (Usando HereDoc para evitar erro de aspas na ASCII Art)
+# Função de Cabeçalho (HereDoc para segurança ASCII)
 header() {
     clear
     echo -e "${BL}"
@@ -114,9 +115,8 @@ EOF
     echo "Instalando ferramentas..."
     apt install -y intel-microcode build-essential pve-headers vim htop btop curl git fastfetch ethtool net-tools nvtop
 
-    # Nag Removal (Usando aspas duplas padrão, seguro e testado)
     if [ -f /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js ]; then
-        sed -Ezi.bak "s/(Ext.Msg.show\(\{\s+title: gettext\('No valid subscription'\),)/void\(\{ \/\/\1/g" /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js
+        sed -Ezi.bak 's/(Ext.Msg.show\(\{\s+title: gettext\('"'"'No valid subscription'"'"'\),)/void\(\{ \/\/\1/g' /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js
         systemctl restart pveproxy.service
         echo -e "${BL}[INFO] Aviso de Assinatura Removido.${CL}"
     fi
@@ -139,7 +139,6 @@ step_02_gui() {
         return
     fi
 
-    # Instalação completa com drivers gráficos para evitar erro do LightDM
     apt install -y xfce4 xfce4-goodies lightdm chromium sudo xorg xserver-xorg-video-all xserver-xorg-input-all --no-install-recommends
 
     if id "$NEW_USER" &>/dev/null; then
@@ -164,11 +163,10 @@ EOF
 
     chown -R "$NEW_USER:$NEW_USER" "/home/$NEW_USER/.config"
     
-    # Apenas HABILITA o serviço. Não inicia agora para manter o terminal.
     systemctl enable lightdm
     
     echo -e "${GN}✅ Etapa 02 Concluída.${CL}"
-    echo -e "${YW}Nota: A interface gráfica iniciará no próximo Reboot.${CL}"
+    echo -e "${YW}Nota: GUI inicia no próximo reboot.${CL}"
     read -p "Pressione Enter para voltar ao menu..."
 }
 
@@ -221,6 +219,20 @@ EOF
 step_04_storage() {
     echo -e "${GN}>>> ETAPA 04: Storage ZFS ($DISK_DEVICE)${CL}"
     
+    # --- CHECAGEM INTELIGENTE DE REBOOT ---
+    if systemd-detect-virt | grep -q "none"; then
+        # Estamos em Hardware Real. Verifica se o Fix do NVMe está ativo no kernel atual.
+        if ! cat /proc/cmdline | grep -q "nvme_core.default_ps_max_latency_us=0"; then
+            echo -e "${RD}ERRO CRÍTICO DE SEGURANÇA!${CL}"
+            echo -e "O parâmetro de proteção do NVMe (Step 3) NÃO está ativo no Kernel atual."
+            echo -e "Se você formatar agora, o disco WD SN850X pode travar o sistema."
+            echo -e "${YW}SOLUÇÃO: Reinicie o PC e execute a Etapa 04 depois.${CL}"
+            read -p "Pressione Enter para abortar..."
+            return
+        fi
+    fi
+    # --------------------------------------
+
     if zpool list -o name -H | grep -q "^$POOL_NAME$"; then
         echo -e "${RD}ERRO: Pool '$POOL_NAME' já existe! Abortando.${CL}"; read -p "Enter..."; return
     fi
@@ -359,7 +371,6 @@ step_08_pvescripts() {
                     if ! grep -q "$NEW_URL" "$DESKTOP_FILE"; then
                         sed -i "s|https://localhost:8007|https://localhost:8007 $NEW_URL|" "$DESKTOP_FILE"
                         echo -e "${GN}✅ URL $NEW_URL adicionada ao Quiosque!${CL}"
-                        echo "A nova aba aparecerá no próximo reinício."
                     else
                         echo "URL já existe no Kiosk."
                     fi
@@ -390,7 +401,7 @@ while true; do
     echo "7) [Unlock]   Configurar Boot Unlock (YubiKey)"
     echo "8) [Extras]   Criar Container PVEScriptsLocal"
     echo "------------------------------------------------"
-    echo "R) REINICIAR O SISTEMA"
+    echo "R) REINICIAR O SISTEMA (Recomendado após Etapa 3)"
     echo "0) Sair"
     echo ""
     read -p "Opção: " OPTION
