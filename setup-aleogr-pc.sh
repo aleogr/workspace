@@ -1,8 +1,8 @@
 #!/bin/bash
 # ==============================================================================
-# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final Gold 2.5)
+# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final Gold 2.6)
 # ==============================================================================
-# Correções: Aspas balanceadas, ASCII Art seguro e SED otimizado.
+# Correções: Sintaxe de aspas blindada (HereDoc), Sed corrigido e GUI ajustada.
 # ==============================================================================
 
 # --- VARIÁVEIS GLOBAIS (EDITE AQUI) ---
@@ -33,14 +33,16 @@ RD=$(echo "\033[01;31m")
 GN=$(echo "\033[1;92m")
 CL=$(echo "\033[m")
 
-# Função de Cabeçalho (Aspas simples para segurança do ASCII)
+# Função de Cabeçalho (Usando HereDoc para evitar erro de aspas na ASCII Art)
 header() {
     clear
     echo -e "${BL}"
-    echo '   __   __   ____  __   ___  ____'
-    echo '  / _\ (  ) (  __)/  \ / __)(  _ \'
-    echo ' /    \/ (_/\) _)(  O ( (_ \ )   /'
-    echo ' \_/\_/\____/(____)\__/ \___/(__\_)'
+    cat << "EOF"
+   __   __   ____  __   ___  ____
+  / _\ (  ) (  __)/  \ / __)(  _ \
+ /    \/ (_/\) _)(  O ( (_ \ )   /
+ \_/\_/\____/(____)\__/ \___/(__\_)
+EOF
     echo -e "${CL}"
     echo -e "${YW}HARDWARE VALIDADO (Target):${CL}"
     echo -e " • MB:  ${GN}ASUS ROG MAXIMUS Z790 HERO${CL}"
@@ -112,9 +114,9 @@ EOF
     echo "Instalando ferramentas..."
     apt install -y intel-microcode build-essential pve-headers vim htop btop curl git fastfetch ethtool net-tools nvtop
 
+    # Nag Removal (Usando aspas duplas padrão, seguro e testado)
     if [ -f /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js ]; then
-        # FIX: Uso de aspas simples para evitar erro de interpretação do sed
-        sed -Ezi.bak 's/(Ext.Msg.show\(\{\s+title: gettext\('"'"'No valid subscription'"'"'\),)/void\(\{ \/\/\1/g' /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js
+        sed -Ezi.bak "s/(Ext.Msg.show\(\{\s+title: gettext\('No valid subscription'\),)/void\(\{ \/\/\1/g" /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js
         systemctl restart pveproxy.service
         echo -e "${BL}[INFO] Aviso de Assinatura Removido.${CL}"
     fi
@@ -131,8 +133,13 @@ step_02_gui() {
     echo "Confirme:"
     read -s PASSWORD_CONFIRM
     
-    if [ "$PASSWORD" != "$PASSWORD_CONFIRM" ]; then echo "${RD}Senhas não conferem!${CL}"; read -p "Enter..."; return; fi
+    if [ "$PASSWORD" != "$PASSWORD_CONFIRM" ]; then 
+        echo -e "${RD}Senhas não conferem!${CL}"
+        read -p "Enter..."
+        return
+    fi
 
+    # Instalação completa com drivers gráficos para evitar erro do LightDM
     apt install -y xfce4 xfce4-goodies lightdm chromium sudo xorg xserver-xorg-video-all xserver-xorg-input-all --no-install-recommends
 
     if id "$NEW_USER" &>/dev/null; then
@@ -156,10 +163,12 @@ Terminal=false
 EOF
 
     chown -R "$NEW_USER:$NEW_USER" "/home/$NEW_USER/.config"
+    
+    # Apenas HABILITA o serviço. Não inicia agora para manter o terminal.
     systemctl enable lightdm
     
     echo -e "${GN}✅ Etapa 02 Concluída.${CL}"
-    echo -e "${YW}Nota: GUI inicia no próximo reboot.${CL}"
+    echo -e "${YW}Nota: A interface gráfica iniciará no próximo Reboot.${CL}"
     read -p "Pressione Enter para voltar ao menu..."
 }
 
@@ -322,10 +331,13 @@ EOF
 }
 
 step_08_pvescripts() {
-    echo -e "${GN}>>> ETAPA 08: PVEScriptsLocal (Community)${CL}"
-    echo "Fonte: https://github.com/community-scripts/ProxmoxVE"
+    echo -e "${GN}>>> ETAPA 08: PVEScriptsLocal (Gerenciador de Scripts)${CL}"
+    echo -e "Isso irá baixar e executar o instalador oficial do PVEScriptsLocal LXC."
+    echo -e "Fonte: https://github.com/community-scripts/ProxmoxVE"
+    echo ""
     
     if [ ! -f /etc/timezone ]; then
+        echo "Criando arquivo /etc/timezone para compatibilidade..."
         timedatectl show --property=Timezone --value > /etc/timezone
     fi
 
@@ -347,11 +359,12 @@ step_08_pvescripts() {
                     if ! grep -q "$NEW_URL" "$DESKTOP_FILE"; then
                         sed -i "s|https://localhost:8007|https://localhost:8007 $NEW_URL|" "$DESKTOP_FILE"
                         echo -e "${GN}✅ URL $NEW_URL adicionada ao Quiosque!${CL}"
+                        echo "A nova aba aparecerá no próximo reinício."
                     else
                         echo "URL já existe no Kiosk."
                     fi
                 else
-                    echo "${RD}Arquivo Kiosk não encontrado.${CL}"
+                    echo "${RD}Arquivo Kiosk não encontrado. Rode Etapa 02.${CL}"
                 fi
             fi
         fi
