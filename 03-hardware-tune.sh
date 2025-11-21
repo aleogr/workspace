@@ -22,7 +22,7 @@ cp /etc/kernel/cmdline /etc/kernel/cmdline.bak
 # nvme_core... : Fix para WD SN850X não travar em low-power
 # split_lock... : Fix para i9-13900K não travar em jogos
 # video=... : Desliga drivers de vídeo do Linux para liberar a GPU
-CMDLINE="$IOMMU_FLAG iommu=pt pci=noaer nvme_core.default_ps_max_latency_us=0 split_lock_detect=off video=efifb:off video=vesafb:off video=simplefb:off"
+CMDLINE="$IOMMU_FLAG iommu=pt pci=noaer nvme_core.default_ps_max_latency_us=0 split_lock_detect=off video=efifb:off video=vesafb:off video=simplefb:off" initcall_blacklist=sysfb_init
 
 echo "root=ZFS=rpool/ROOT/pve-1 boot=zfs $CMDLINE" > /etc/kernel/cmdline
 proxmox-boot-tool refresh
