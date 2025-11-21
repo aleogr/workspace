@@ -19,12 +19,12 @@ CL=$(echo "\033[m")
 header_info() {
     clear
     echo -e "${BL}
-  ____  ____  ____  _  _  __  __  ____  _  _ 
- (  _ \(  _ \/ ___)( \/ )(  \/  )/ ___)( \/ )
-  )___/ )   /\___ \ \  /  )    ( \___ \ )  ( 
- (__)  (__\_)(____/ (__) (_/\/\_)(____/(_/\_)
+   __   __   ____  __   ___  ____
+  / _\ (  ) (  __)/  \ / __)(  _ \
+ /    \/ (_/\) _)(  O ( (_ \ )   /
+ \_/\_/\____/(____)\__/ \___/(__\_)
     ${CL}"
-    echo -e "${YW}Adaptado para i9-13900K + RTX 3090 Ti${CL}"
+    echo -e "${YW}Target: i9-13900K + RTX 3090 Ti${CL}"
     echo ""
 }
 
@@ -86,16 +86,13 @@ echo -e "${GN}>>> [6/7] Instalando Ferramentas Base e Microcode...${CL}"
 apt install -y intel-microcode build-essential pve-headers vim htop btop curl git fastfetch ethtool net-tools
 
 echo -e "${GN}>>> [7/7] Aplicando Tweaks de Interface (Nag Removal)...${CL}"
-# Esta é a mágica dos Helper-Scripts para remover o popup de "No Subscription"
 if [ -f /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js ]; then
     sed -Ezi.bak "s/(Ext.Msg.show\(\{\s+title: gettext\('No valid subscription'\),)/void\(\{ \/\/\1/g" /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js
     systemctl restart pveproxy.service
     echo -e "${BL}[INFO] Aviso de Assinatura Removido.${CL}"
 fi
 
-# Adiciona repositório de testes do Ceph apenas se necessário (mas aqui mantemos o padrão no-sub)
-
 echo -e "${GN}>>> Limpeza final...${CL}"
 apt autoremove -y && apt clean
 
-echo -e "${GN}✅ Base do Sistema (V2) Pronta!${CL}"
+echo -e "${GN}✅ Base do Sistema Pronta!${CL}"
