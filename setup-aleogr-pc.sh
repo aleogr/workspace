@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final Gold 2.1)
+# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final Gold 2.2)
 # ==============================================================================
 # Automação completa para Workstation Proxmox com Passthrough e ZFS.
 # ==============================================================================
@@ -237,7 +237,6 @@ step_04_storage() {
 
     if [ ! -b "$DISK_DEVICE" ]; then echo "${RD}Erro: Disco $DISK_DEVICE não encontrado!${CL}"; read -p "Enter..." ; return; fi
     
-    # MENSAGEM GENÉRICA E VARIÁVEL
     echo -e "${RD}!!! CUIDADO: ISSO VAI FORMATAR O DISCO: $DISK_DEVICE !!!${CL}"
     echo -e "Todos os dados neste dispositivo serão perdidos."
     echo "Digite 'CONFIRMAR' para continuar:"
@@ -353,7 +352,6 @@ step_08_pvescripts() {
     echo -e "Fonte: https://github.com/community-scripts/ProxmoxVE"
     echo ""
     
-    # FIX: Garante que o arquivo timezone existe no Host antes de rodar o script
     if [ ! -f /etc/timezone ]; then
         echo "Criando arquivo /etc/timezone para compatibilidade..."
         timedatectl show --property=Timezone --value > /etc/timezone
@@ -362,11 +360,32 @@ step_08_pvescripts() {
     echo "Deseja prosseguir? (s/n)"
     read -r CONFIRM
     if [[ "$CONFIRM" =~ ^[Ss]$ ]]; then
-        # Comando oficial via CURL
         bash -c "$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/ct/pve-scripts-local.sh)"
-        echo -e "${GN}✅ Instalação do PVEScriptsLocal finalizada.${CL}"
+        echo -e "${GN}✅ Instalação finalizada.${CL}"
+        
+        # Automação da URL no Kiosk
+        echo "Configurando Kiosk para abrir o novo painel..."
+        CTID=$(pct list | grep "pve-scripts-local" | awk '{print $1}')
+        
+        if [ -n "$CTID" ]; then
+            CTIP=$(pct exec "$CTID" -- ip -4 -br addr show eth0 | awk '{print $3}' | cut -d/ -f1)
+            if [ -n "$CTIP" ]; then
+                NEW_URL="http://$CTIP:3000"
+                DESKTOP_FILE="/home/$NEW_USER/.config/autostart/proxmox-ui.desktop"
+                if [ -f "$DESKTOP_FILE" ]; then
+                    if ! grep -q "$NEW_URL" "$DESKTOP_FILE"; then
+                        sed -i "s|https://localhost:8007|https://localhost:8007 $NEW_URL|" "$DESKTOP_FILE"
+                        echo -e "${GN}✅ URL $NEW_URL adicionada ao Quiosque!${CL}"
+                    else
+                        echo "URL já existe no Kiosk."
+                    fi
+                else
+                    echo "${RD}Arquivo Kiosk não encontrado. Rode Etapa 02.${CL}"
+                fi
+            fi
+        fi
     else
-        echo "Operação cancelada."
+        echo "Cancelado."
     fi
     read -p "Pressione Enter para voltar ao menu..."
 }
