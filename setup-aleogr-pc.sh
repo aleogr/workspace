@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final Gold 2.0)
+# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final Gold 2.1)
 # ==============================================================================
 # Automação completa para Workstation Proxmox com Passthrough e ZFS.
 # ==============================================================================
@@ -48,7 +48,7 @@ header() {
     echo -e " • CPU: ${GN}Intel Core i9-13900K${CL}"
     echo -e " • GPU: ${GN}NVIDIA GeForce RTX 3090 Ti${CL}"
     echo -e " • RAM: ${GN}64GB DDR5${CL}"
-    echo -e " • SSD: ${GN}WD Black SN850X 2TB (Data)${CL} + NVMe 512GB (OS)"
+    echo -e " • SSD: ${GN}WD Black SN850X (Dados)${CL} + NVMe (OS)"
     echo ""
     
     # Aviso se estiver em VM
@@ -163,13 +163,15 @@ EOF
     chown -R "$NEW_USER:$NEW_USER" "/home/$NEW_USER/.config"
     systemctl enable lightdm
     
+    if ! systemctl is-active --quiet lightdm; then
+        systemctl start lightdm
+    fi
+    
     echo -e "${GN}✅ Etapa 02 Concluída.${CL}"
-    echo -e "${YW}Nota: A interface gráfica iniciará no próximo Reboot.${CL}"
     read -p "Pressione Enter para voltar ao menu..."
 }
 
 step_03_hardware() {
-    # Proteção contra execução em VM
     if ! systemd-detect-virt | grep -q "none"; then
         echo -e "${RD}ERRO: Esta etapa é exclusiva para Hardware Real (Bare Metal).${CL}"
         echo -e "Detectado ambiente virtual: $(systemd-detect-virt)"
@@ -235,8 +237,9 @@ step_04_storage() {
 
     if [ ! -b "$DISK_DEVICE" ]; then echo "${RD}Erro: Disco $DISK_DEVICE não encontrado!${CL}"; read -p "Enter..." ; return; fi
     
-    echo -e "${RD}!!! CUIDADO: ISSO VAI FORMATAR O DISCO DE 2TB !!!${CL}"
-    echo -e "Recomendação: Só execute se já tiver reiniciado após a Etapa 03."
+    # MENSAGEM GENÉRICA E VARIÁVEL
+    echo -e "${RD}!!! CUIDADO: ISSO VAI FORMATAR O DISCO: $DISK_DEVICE !!!${CL}"
+    echo -e "Todos os dados neste dispositivo serão perdidos."
     echo "Digite 'CONFIRMAR' para continuar:"
     read -r INPUT
     if [ "$INPUT" != "CONFIRMAR" ]; then return; fi
@@ -349,10 +352,17 @@ step_08_pvescripts() {
     echo -e "Isso irá baixar e executar o instalador oficial do PVEScriptsLocal LXC."
     echo -e "Fonte: https://github.com/community-scripts/ProxmoxVE"
     echo ""
+    
+    # FIX: Garante que o arquivo timezone existe no Host antes de rodar o script
+    if [ ! -f /etc/timezone ]; then
+        echo "Criando arquivo /etc/timezone para compatibilidade..."
+        timedatectl show --property=Timezone --value > /etc/timezone
+    fi
+
     echo "Deseja prosseguir? (s/n)"
     read -r CONFIRM
     if [[ "$CONFIRM" =~ ^[Ss]$ ]]; then
-        # Comando oficial com CURL
+        # Comando oficial via CURL
         bash -c "$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/ct/pve-scripts-local.sh)"
         echo -e "${GN}✅ Instalação do PVEScriptsLocal finalizada.${CL}"
     else
@@ -377,7 +387,7 @@ while true; do
         echo -e "${RD}3) [Hardware] (Bloqueado em VM)${CL}"
     fi
     
-    echo "4) [Storage]  Formatar 2TB, ZFS e Criptografia"
+    echo "4) [Storage]  Formatar Disco de Dados, ZFS e Criptografia"
     echo "5) [Polish]   Ajuste de Swap"
     echo "6) [Backup]   Instalar PBS Local"
     echo "7) [Unlock]   Configurar Boot Unlock (YubiKey)"
