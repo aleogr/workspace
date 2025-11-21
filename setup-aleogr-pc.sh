@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final Gold)
+# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final Gold 2.0)
 # ==============================================================================
 # Automação completa para Workstation Proxmox com Passthrough e ZFS.
 # ==============================================================================
@@ -141,7 +141,6 @@ step_02_gui() {
     apt install -y xfce4 xfce4-goodies lightdm chromium sudo xorg xserver-xorg-video-all xserver-xorg-input-all --no-install-recommends
 
     if id "$NEW_USER" &>/dev/null; then
-        # printf garante que senhas com hífen (-) não sejam interpretadas como flags
         printf "%s:%s\n" "$NEW_USER" "$PASSWORD" | chpasswd
     else
         useradd -m -s /bin/bash "$NEW_USER"
@@ -305,7 +304,6 @@ step_06_pbs() {
     read -s PBS_PASSWORD
 
     if ! pvesm status | grep -q "$DATASTORE_PBS"; then
-        # Usamos printf para passar a senha de forma segura se ela tiver caracteres especiais
         pvesm add pbs "$DATASTORE_PBS" \
             --server 127.0.0.1 \
             --datastore "$DATASTORE_PBS" \
@@ -349,12 +347,12 @@ EOF
 step_08_pvescripts() {
     echo -e "${GN}>>> ETAPA 08: PVEScriptsLocal (Gerenciador de Scripts)${CL}"
     echo -e "Isso irá baixar e executar o instalador oficial do PVEScriptsLocal LXC."
-    echo -e "O script original é mantido pela comunidade."
+    echo -e "Fonte: https://github.com/community-scripts/ProxmoxVE"
     echo ""
     echo "Deseja prosseguir? (s/n)"
     read -r CONFIRM
     if [[ "$CONFIRM" =~ ^[Ss]$ ]]; then
-        # Executa o instalador oficial direto do repositório da comunidade
+        # Comando oficial com CURL
         bash -c "$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/ct/pve-scripts-local.sh)"
         echo -e "${GN}✅ Instalação do PVEScriptsLocal finalizada.${CL}"
     else
@@ -373,7 +371,6 @@ while true; do
     echo "1) [Sistema]  Base, Repositórios e Microcode"
     echo "2) [Desktop]  GUI XFCE e Kiosk Mode"
     
-    # Mostra a opção 3 em vermelho/bloqueado se for VM
     if systemd-detect-virt | grep -q "none"; then
         echo "3) [Hardware] Kernel, IOMMU, GPU e ZFS RAM"
     else
