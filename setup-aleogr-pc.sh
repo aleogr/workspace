@@ -1,16 +1,18 @@
 #!/bin/bash
 # ==============================================================================
-# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final Gold 2.7)
+# MASTER SETUP SCRIPT - ALEOGR-PC
 # ==============================================================================
 # Automação completa para Workstation Proxmox com Passthrough e ZFS.
-# Correções: Proteção contra formatação sem reboot e Menu claro.
+# Versionamento: SemVer 2.0.0 (Fase de Desenvolvimento)
 # ==============================================================================
 
 # --- VARIÁVEIS GLOBAIS (EDITE AQUI) ---
+# ------------------------------------------------------------------------------
+SCRIPT_VERSION="0.1.0"
 NEW_USER="aleogr"
 DEBIAN_CODENAME="trixie"
 
-# Seleção automática do disco
+# Seleção automática do disco baseada no ambiente (Real vs VM)
 if systemd-detect-virt | grep -q "none"; then
     # Hardware Real (WD SN850X)
     DISK_DEVICE="/dev/disk/by-id/nvme-WD_BLACK_SN850X_2000GB_222503A00551"
@@ -23,8 +25,8 @@ POOL_NAME="tank"
 STORAGE_ID_VM="VM-Storage"
 DATASTORE_PBS="Backup-PBS"
 ZFS_ARC_GB=8
-CPU_GOVERNOR="powersave"
-ENABLE_ENCRYPTION="yes"
+CPU_GOVERNOR="powersave" # 'powersave' = Balanceado (Recomendado para Intel moderno)
+ENABLE_ENCRYPTION="yes"  # "yes" ou "no"
 # ------------------------------------------------------------------------------
 
 # Cores
@@ -45,6 +47,9 @@ header() {
  \_/\_/\____/(____)\__/ \___/(__\_)
 EOF
     echo -e "${CL}"
+    echo -e "${YW}Master Setup: i9-13900K + RTX 3090 Ti${CL}"
+    echo -e "${YW}Versão: ${GN}v${SCRIPT_VERSION}${CL} (Development)"
+    echo ""
     echo -e "${YW}HARDWARE VALIDADO (Target):${CL}"
     echo -e " • MB:  ${GN}ASUS ROG MAXIMUS Z790 HERO${CL}"
     echo -e " • CPU: ${GN}Intel Core i9-13900K${CL}"
@@ -166,7 +171,7 @@ EOF
     systemctl enable lightdm
     
     echo -e "${GN}✅ Etapa 02 Concluída.${CL}"
-    echo -e "${YW}Nota: GUI inicia no próximo reboot.${CL}"
+    echo -e "${YW}Nota: A interface gráfica iniciará no próximo Reboot.${CL}"
     read -p "Pressione Enter para voltar ao menu..."
 }
 
@@ -219,19 +224,15 @@ EOF
 step_04_storage() {
     echo -e "${GN}>>> ETAPA 04: Storage ZFS ($DISK_DEVICE)${CL}"
     
-    # --- CHECAGEM INTELIGENTE DE REBOOT ---
     if systemd-detect-virt | grep -q "none"; then
-        # Estamos em Hardware Real. Verifica se o Fix do NVMe está ativo no kernel atual.
         if ! cat /proc/cmdline | grep -q "nvme_core.default_ps_max_latency_us=0"; then
             echo -e "${RD}ERRO CRÍTICO DE SEGURANÇA!${CL}"
             echo -e "O parâmetro de proteção do NVMe (Step 3) NÃO está ativo no Kernel atual."
-            echo -e "Se você formatar agora, o disco WD SN850X pode travar o sistema."
             echo -e "${YW}SOLUÇÃO: Reinicie o PC e execute a Etapa 04 depois.${CL}"
             read -p "Pressione Enter para abortar..."
             return
         fi
     fi
-    # --------------------------------------
 
     if zpool list -o name -H | grep -q "^$POOL_NAME$"; then
         echo -e "${RD}ERRO: Pool '$POOL_NAME' já existe! Abortando.${CL}"; read -p "Enter..."; return
