@@ -1,16 +1,15 @@
 #!/bin/bash
 # ==============================================================================
-# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final Gold 2.4)
+# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final Gold 2.5)
 # ==============================================================================
-# Automação completa para Workstation Proxmox com Passthrough e ZFS.
+# Correções: Aspas balanceadas, ASCII Art seguro e SED otimizado.
 # ==============================================================================
 
 # --- VARIÁVEIS GLOBAIS (EDITE AQUI) ---
-# ------------------------------------------------------------------------------
 NEW_USER="aleogr"
 DEBIAN_CODENAME="trixie"
 
-# Seleção automática do disco baseada no ambiente (Real vs VM)
+# Seleção automática do disco
 if systemd-detect-virt | grep -q "none"; then
     # Hardware Real (WD SN850X)
     DISK_DEVICE="/dev/disk/by-id/nvme-WD_BLACK_SN850X_2000GB_222503A00551"
@@ -23,8 +22,8 @@ POOL_NAME="tank"
 STORAGE_ID_VM="VM-Storage"
 DATASTORE_PBS="Backup-PBS"
 ZFS_ARC_GB=8
-CPU_GOVERNOR="powersave" # 'powersave' = Balanceado (Recomendado para Intel moderno)
-ENABLE_ENCRYPTION="yes"  # "yes" ou "no"
+CPU_GOVERNOR="powersave"
+ENABLE_ENCRYPTION="yes"
 # ------------------------------------------------------------------------------
 
 # Cores
@@ -34,15 +33,15 @@ RD=$(echo "\033[01;31m")
 GN=$(echo "\033[1;92m")
 CL=$(echo "\033[m")
 
-# Função de Cabeçalho com Hardware Info
+# Função de Cabeçalho (Aspas simples para segurança do ASCII)
 header() {
     clear
-    echo -e "${BL}
-   __   __   ____  __   ___  ____
-  / _\ (  ) (  __)/  \ / __)(  _ \\
- /    \/ (_/\) _)(  O ( (_ \ )   /
- \_/\_/\____/(____)\__/ \___/(__\_)
-    ${CL}"
+    echo -e "${BL}"
+    echo '   __   __   ____  __   ___  ____'
+    echo '  / _\ (  ) (  __)/  \ / __)(  _ \'
+    echo ' /    \/ (_/\) _)(  O ( (_ \ )   /'
+    echo ' \_/\_/\____/(____)\__/ \___/(__\_)'
+    echo -e "${CL}"
     echo -e "${YW}HARDWARE VALIDADO (Target):${CL}"
     echo -e " • MB:  ${GN}ASUS ROG MAXIMUS Z790 HERO${CL}"
     echo -e " • CPU: ${GN}Intel Core i9-13900K${CL}"
@@ -51,7 +50,6 @@ header() {
     echo -e " • SSD: ${GN}WD Black SN850X (Dados)${CL} + NVMe (OS)"
     echo ""
     
-    # Aviso se estiver em VM
     if ! systemd-detect-virt | grep -q "none"; then
         echo -e "${RD}[!] AMBIENTE VIRTUAL DETECTADO ($(systemd-detect-virt))${CL}"
         echo -e "${RD}[!] A Etapa 03 (Hardware Tune) será bloqueada.${CL}"
@@ -59,7 +57,6 @@ header() {
     fi
 }
 
-# Verifica Root
 if [ "$EUID" -ne 0 ]; then echo "Por favor, rode como root"; exit 1; fi
 
 # ==============================================================================
@@ -73,9 +70,7 @@ step_01_system() {
     mv /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/backup_old/ 2>/dev/null || true
     mv /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/backup_old/ 2>/dev/null || true
     
-    if [ -f /etc/apt/sources.list ]; then
-        echo "# Movido para debian.sources" > /etc/apt/sources.list
-    fi
+    if [ -f /etc/apt/sources.list ]; then echo "# Movido para debian.sources" > /etc/apt/sources.list; fi
 
     cat <<EOF > /etc/apt/sources.list.d/debian.sources
 Types: deb
@@ -118,7 +113,8 @@ EOF
     apt install -y intel-microcode build-essential pve-headers vim htop btop curl git fastfetch ethtool net-tools nvtop
 
     if [ -f /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js ]; then
-        sed -Ezi.bak "s/(Ext.Msg.show\(\{\s+title: gettext\('No valid subscription'\),)/void\(\{ \/\/\1/g" /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js
+        # FIX: Uso de aspas simples para evitar erro de interpretação do sed
+        sed -Ezi.bak 's/(Ext.Msg.show\(\{\s+title: gettext\('"'"'No valid subscription'"'"'\),)/void\(\{ \/\/\1/g' /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js
         systemctl restart pveproxy.service
         echo -e "${BL}[INFO] Aviso de Assinatura Removido.${CL}"
     fi
@@ -130,7 +126,6 @@ EOF
 
 step_02_gui() {
     echo -e "${GN}>>> ETAPA 02: Desktop GUI (Kiosk)${CL}"
-    
     echo "Defina a senha para o usuário Linux ($NEW_USER):"
     read -s PASSWORD
     echo "Confirme:"
@@ -161,31 +156,23 @@ Terminal=false
 EOF
 
     chown -R "$NEW_USER:$NEW_USER" "/home/$NEW_USER/.config"
-    
-    # Habilita para o próximo boot, mas NÃO inicia agora para manter o terminal
     systemctl enable lightdm
     
     echo -e "${GN}✅ Etapa 02 Concluída.${CL}"
-    echo -e "${YW}Nota: A interface gráfica iniciará apenas no próximo Reboot (ou via 'systemctl start lightdm').${CL}"
+    echo -e "${YW}Nota: GUI inicia no próximo reboot.${CL}"
     read -p "Pressione Enter para voltar ao menu..."
 }
 
 step_03_hardware() {
     if ! systemd-detect-virt | grep -q "none"; then
-        echo -e "${RD}ERRO: Esta etapa é exclusiva para Hardware Real (Bare Metal).${CL}"
-        echo -e "Detectado ambiente virtual: $(systemd-detect-virt)"
-        echo "Pressione Enter para voltar..."
-        read
-        return
+        echo -e "${RD}ERRO: Bloqueado em VM.${CL}"; read -p "Enter..."; return
     fi
 
     echo -e "${GN}>>> ETAPA 03: Hardware Tune (i9 + GPU)${CL}"
-    
     ZFS_BYTES=$(($ZFS_ARC_GB * 1024 * 1024 * 1024))
     cp /etc/kernel/cmdline /etc/kernel/cmdline.bak
     
     CMDLINE="intel_iommu=on iommu=pt pci=noaer nvme_core.default_ps_max_latency_us=0 split_lock_detect=off video=efifb:off video=vesafb:off video=simplefb:off initcall_blacklist=sysfb_init"
-    
     echo "root=ZFS=rpool/ROOT/pve-1 boot=zfs $CMDLINE" > /etc/kernel/cmdline
     proxmox-boot-tool refresh
 
@@ -203,12 +190,10 @@ step_03_hardware() {
     if [ -n "$GPU_IDS" ]; then
         echo "GPU Detectada: $GPU_IDS"
         echo "options vfio-pci ids=$GPU_IDS disable_vga=1" > /etc/modprobe.d/vfio.conf
-        
         echo "vfio" > /etc/modules
         echo "vfio_iommu_type1" >> /etc/modules
         echo "vfio_pci" >> /etc/modules
         echo "vfio_virqfd" >> /etc/modules
-        
         cat <<EOF > /etc/modprobe.d/blacklist.conf
 blacklist nouveau
 blacklist nvidia
@@ -220,7 +205,7 @@ EOF
     fi
 
     update-initramfs -u -k all
-    echo -e "${GN}✅ Etapa 03 Concluída. REBOOT É CRUCIAL APÓS ESTA ETAPA!${CL}"
+    echo -e "${GN}✅ Etapa 03 Concluída. REBOOT NECESSÁRIO!${CL}"
     read -p "Pressione Enter para voltar ao menu..."
 }
 
@@ -228,16 +213,12 @@ step_04_storage() {
     echo -e "${GN}>>> ETAPA 04: Storage ZFS ($DISK_DEVICE)${CL}"
     
     if zpool list -o name -H | grep -q "^$POOL_NAME$"; then
-        echo -e "${RD}ERRO CRÍTICO: O Pool ZFS '$POOL_NAME' JÁ EXISTE!${CL}"
-        echo "Operação abortada para proteger dados."
-        read -p "Enter..."
-        return
+        echo -e "${RD}ERRO: Pool '$POOL_NAME' já existe! Abortando.${CL}"; read -p "Enter..."; return
     fi
 
-    if [ ! -b "$DISK_DEVICE" ]; then echo "${RD}Erro: Disco $DISK_DEVICE não encontrado!${CL}"; read -p "Enter..." ; return; fi
+    if [ ! -b "$DISK_DEVICE" ]; then echo "${RD}Erro: Disco $DISK_DEVICE não encontrado!${CL}"; read -p "Enter..."; return; fi
     
     echo -e "${RD}!!! CUIDADO: ISSO VAI FORMATAR O DISCO: $DISK_DEVICE !!!${CL}"
-    echo -e "Todos os dados neste dispositivo serão perdidos."
     echo "Digite 'CONFIRMAR' para continuar:"
     read -r INPUT
     if [ "$INPUT" != "CONFIRMAR" ]; then return; fi
@@ -246,7 +227,6 @@ step_04_storage() {
     wipefs -a "$DISK_DEVICE" > /dev/null
 
     ZPOOL_ARGS="-f -o ashift=12 -o autotrim=on -O compression=lz4 -O atime=off -O acltype=posixacl -O xattr=sa"
-    
     if [ "$ENABLE_ENCRYPTION" == "yes" ]; then
         echo -e "${YW}Defina a SENHA DO ZFS (PIN + YubiKey):${CL}"
         ZPOOL_ARGS="$ZPOOL_ARGS -O encryption=aes-256-gcm -O keyformat=passphrase -O keylocation=prompt"
@@ -255,9 +235,7 @@ step_04_storage() {
     if zpool create $ZPOOL_ARGS "$POOL_NAME" "$DISK_DEVICE"; then
         echo "[OK] Pool criado."
     else
-        echo "${RD}Falha ao criar o Pool. Verifique os logs.${CL}"
-        read -p "Enter..."
-        return
+        echo "${RD}Falha ao criar Pool.${CL}"; read -p "Enter..."; return
     fi
 
     zfs create "$POOL_NAME/vms"
@@ -269,7 +247,6 @@ step_04_storage() {
 
     echo "Atualizando cache de boot..."
     update-initramfs -u
-
     echo -e "${GN}✅ Etapa 04 Concluída.${CL}"
     read -p "Pressione Enter para voltar ao menu..."
 }
@@ -277,7 +254,7 @@ step_04_storage() {
 step_05_polish() {
     echo -e "${GN}>>> ETAPA 05: Ajuste de Memória (Swap)${CL}"
     CONFIG_FILE="/etc/sysctl.d/99-pve-swappiness.conf"
-    echo "# Configuração customizada para Proxmox ZFS" > "$CONFIG_FILE"
+    echo "# Configuração customizada" > "$CONFIG_FILE"
     echo "vm.swappiness=10" >> "$CONFIG_FILE"
     sysctl --system > /dev/null
     echo -e "${GN}✅ Etapa 05 Concluída.${CL}"
@@ -293,9 +270,7 @@ step_06_pbs() {
         chown -R backup:backup $ZFS_PATH
         chmod 700 $ZFS_PATH
     else
-        echo "${RD}Aviso: Pasta $ZFS_PATH não encontrada. Rode a Etapa 04 antes.${CL}"
-        read -p "Enter..."
-        return
+        echo "${RD}Aviso: Pasta $ZFS_PATH não encontrada.${CL}"; read -p "Enter..."; return
     fi
 
     if ! proxmox-backup-manager datastore list | grep -q "$DATASTORE_PBS"; then
@@ -323,7 +298,6 @@ step_06_pbs() {
 step_07_boot_unlock() {
     echo -e "${GN}>>> ETAPA 07: Serviço de Desbloqueio no Boot${CL}"
     SERVICE_FILE="/etc/systemd/system/zfs-load-key.service"
-    
     cat <<EOF > "$SERVICE_FILE"
 [Unit]
 Description=Load ZFS encryption keys
@@ -341,7 +315,6 @@ StandardInput=tty-force
 [Install]
 WantedBy=zfs-mount.service
 EOF
-
     systemctl daemon-reload
     systemctl enable zfs-load-key
     echo -e "${GN}✅ Etapa 07 Concluída.${CL}"
@@ -349,13 +322,10 @@ EOF
 }
 
 step_08_pvescripts() {
-    echo -e "${GN}>>> ETAPA 08: PVEScriptsLocal (Gerenciador de Scripts)${CL}"
-    echo -e "Isso irá baixar e executar o instalador oficial do PVEScriptsLocal LXC."
-    echo -e "Fonte: https://github.com/community-scripts/ProxmoxVE"
-    echo ""
+    echo -e "${GN}>>> ETAPA 08: PVEScriptsLocal (Community)${CL}"
+    echo "Fonte: https://github.com/community-scripts/ProxmoxVE"
     
     if [ ! -f /etc/timezone ]; then
-        echo "Criando arquivo /etc/timezone para compatibilidade..."
         timedatectl show --property=Timezone --value > /etc/timezone
     fi
 
@@ -381,4 +351,48 @@ step_08_pvescripts() {
                         echo "URL já existe no Kiosk."
                     fi
                 else
-                    echo "${RD}Arquivo Kiosk não encontrado. Rode
+                    echo "${RD}Arquivo Kiosk não encontrado.${CL}"
+                fi
+            fi
+        fi
+    else
+        echo "Cancelado."
+    fi
+    read -p "Pressione Enter para voltar ao menu..."
+}
+
+while true; do
+    header
+    echo -e "${YW}Selecione uma etapa para executar:${CL}"
+    echo "1) [Sistema]  Base, Repositórios e Microcode"
+    echo "2) [Desktop]  GUI XFCE e Kiosk Mode"
+    if systemd-detect-virt | grep -q "none"; then
+        echo "3) [Hardware] Kernel, IOMMU, GPU e ZFS RAM"
+    else
+        echo -e "${RD}3) [Hardware] (Bloqueado em VM)${CL}"
+    fi
+    echo "4) [Storage]  Formatar Disco de Dados, ZFS e Criptografia"
+    echo "5) [Polish]   Ajuste de Swap"
+    echo "6) [Backup]   Instalar PBS Local"
+    echo "7) [Unlock]   Configurar Boot Unlock (YubiKey)"
+    echo "8) [Extras]   Criar Container PVEScriptsLocal"
+    echo "------------------------------------------------"
+    echo "R) REINICIAR O SISTEMA"
+    echo "0) Sair"
+    echo ""
+    read -p "Opção: " OPTION
+
+    case $OPTION in
+        1) step_01_system ;;
+        2) step_02_gui ;;
+        3) step_03_hardware ;;
+        4) step_04_storage ;;
+        5) step_05_polish ;;
+        6) step_06_pbs ;;
+        7) step_07_boot_unlock ;;
+        8) step_08_pvescripts ;;
+        r|R) reboot ;;
+        0) exit 0 ;;
+        *) echo "Opção inválida." ; sleep 1 ;;
+    esac
+done
