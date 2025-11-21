@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final Gold 2.2)
+# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final Gold 2.3)
 # ==============================================================================
 # Automação completa para Workstation Proxmox com Passthrough e ZFS.
 # ==============================================================================
@@ -115,7 +115,8 @@ EOF
     apt update && apt dist-upgrade -y
     
     echo "Instalando ferramentas..."
-    apt install -y intel-microcode build-essential pve-headers vim htop btop curl git fastfetch ethtool net-tools
+    # ADICIONADO: nvtop para monitoramento de GPU
+    apt install -y intel-microcode build-essential pve-headers vim htop btop curl git fastfetch ethtool net-tools nvtop
 
     if [ -f /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js ]; then
         sed -Ezi.bak "s/(Ext.Msg.show\(\{\s+title: gettext\('No valid subscription'\),)/void\(\{ \/\/\1/g" /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js
@@ -267,6 +268,10 @@ step_04_storage() {
     if ! pvesm status | grep -q "$STORAGE_ID_VM"; then
         pvesm add zfspool "$STORAGE_ID_VM" --pool "$POOL_NAME/vms" --content images,rootdir --sparse 1
     fi
+
+    # ADICIONADO: Atualizar initramfs para garantir cache do ZFS no boot
+    echo "Atualizando cache de boot..."
+    update-initramfs -u
 
     echo -e "${GN}✅ Etapa 04 Concluída.${CL}"
     read -p "Pressione Enter para voltar ao menu..."
