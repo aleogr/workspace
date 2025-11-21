@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final Gold 2.3)
+# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final Gold 2.4)
 # ==============================================================================
 # Automação completa para Workstation Proxmox com Passthrough e ZFS.
 # ==============================================================================
@@ -115,7 +115,6 @@ EOF
     apt update && apt dist-upgrade -y
     
     echo "Instalando ferramentas..."
-    # ADICIONADO: nvtop para monitoramento de GPU
     apt install -y intel-microcode build-essential pve-headers vim htop btop curl git fastfetch ethtool net-tools nvtop
 
     if [ -f /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js ]; then
@@ -162,13 +161,12 @@ Terminal=false
 EOF
 
     chown -R "$NEW_USER:$NEW_USER" "/home/$NEW_USER/.config"
+    
+    # Habilita para o próximo boot, mas NÃO inicia agora para manter o terminal
     systemctl enable lightdm
     
-    if ! systemctl is-active --quiet lightdm; then
-        systemctl start lightdm
-    fi
-    
     echo -e "${GN}✅ Etapa 02 Concluída.${CL}"
+    echo -e "${YW}Nota: A interface gráfica iniciará apenas no próximo Reboot (ou via 'systemctl start lightdm').${CL}"
     read -p "Pressione Enter para voltar ao menu..."
 }
 
@@ -269,7 +267,6 @@ step_04_storage() {
         pvesm add zfspool "$STORAGE_ID_VM" --pool "$POOL_NAME/vms" --content images,rootdir --sparse 1
     fi
 
-    # ADICIONADO: Atualizar initramfs para garantir cache do ZFS no boot
     echo "Atualizando cache de boot..."
     update-initramfs -u
 
@@ -368,7 +365,6 @@ step_08_pvescripts() {
         bash -c "$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/ct/pve-scripts-local.sh)"
         echo -e "${GN}✅ Instalação finalizada.${CL}"
         
-        # Automação da URL no Kiosk
         echo "Configurando Kiosk para abrir o novo painel..."
         CTID=$(pct list | grep "pve-scripts-local" | awk '{print $1}')
         
@@ -385,54 +381,4 @@ step_08_pvescripts() {
                         echo "URL já existe no Kiosk."
                     fi
                 else
-                    echo "${RD}Arquivo Kiosk não encontrado. Rode Etapa 02.${CL}"
-                fi
-            fi
-        fi
-    else
-        echo "Cancelado."
-    fi
-    read -p "Pressione Enter para voltar ao menu..."
-}
-
-# ==============================================================================
-# LOOP DO MENU PRINCIPAL
-# ==============================================================================
-
-while true; do
-    header
-    echo -e "${YW}Selecione uma etapa para executar:${CL}"
-    echo "1) [Sistema]  Base, Repositórios e Microcode"
-    echo "2) [Desktop]  GUI XFCE e Kiosk Mode"
-    
-    if systemd-detect-virt | grep -q "none"; then
-        echo "3) [Hardware] Kernel, IOMMU, GPU e ZFS RAM"
-    else
-        echo -e "${RD}3) [Hardware] (Bloqueado em VM)${CL}"
-    fi
-    
-    echo "4) [Storage]  Formatar Disco de Dados, ZFS e Criptografia"
-    echo "5) [Polish]   Ajuste de Swap"
-    echo "6) [Backup]   Instalar PBS Local"
-    echo "7) [Unlock]   Configurar Boot Unlock (YubiKey)"
-    echo "8) [Extras]   Criar Container PVEScriptsLocal"
-    echo "------------------------------------------------"
-    echo "R) REINICIAR O SISTEMA (Recomendado após Etapa 3)"
-    echo "0) Sair"
-    echo ""
-    read -p "Opção: " OPTION
-
-    case $OPTION in
-        1) step_01_system ;;
-        2) step_02_gui ;;
-        3) step_03_hardware ;;
-        4) step_04_storage ;;
-        5) step_05_polish ;;
-        6) step_06_pbs ;;
-        7) step_07_boot_unlock ;;
-        8) step_08_pvescripts ;;
-        r|R) reboot ;;
-        0) exit 0 ;;
-        *) echo "Opção inválida." ; sleep 1 ;;
-    esac
-done
+                    echo "${RD}Arquivo Kiosk não encontrado. Rode
