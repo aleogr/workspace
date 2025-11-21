@@ -355,7 +355,7 @@ step_08_pvescripts() {
     read -r CONFIRM
     if [[ "$CONFIRM" =~ ^[Ss]$ ]]; then
         # Executa o instalador oficial direto do repositório da comunidade
-        bash -c "$(wget -qLO - https://github.com/community-scripts/ProxmoxVE/raw/main/ct/pvescriptslocal.sh)"
+        bash -c "$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/ct/pve-scripts-local.sh)"
         echo -e "${GN}✅ Instalação do PVEScriptsLocal finalizada.${CL}"
     else
         echo "Operação cancelada."
