@@ -1,25 +1,29 @@
 #!/bin/bash
 # ==============================================================================
-# MASTER SETUP SCRIPT - ALEOGR (Versão Final)
+# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final Gold)
 # ==============================================================================
-# Combina as etapas de configuração de Sistema, GUI, Hardware, Storage e Backup.
-# Contém travas de segurança para evitar formatação acidental.
+# Automação completa para Workstation Proxmox com Passthrough e ZFS.
 # ==============================================================================
 
-# --- VARIÁVEIS GLOBAIS (EDITE AQUI SE NECESSÁRIO) ---
+# --- VARIÁVEIS GLOBAIS (EDITE AQUI) ---
 # ------------------------------------------------------------------------------
 NEW_USER="aleogr"
 DEBIAN_CODENAME="trixie"
 
-# ID do seu NVMe de 2TB (WD SN850X)
-DISK_DEVICE="/dev/disk/by-id/nvme-WD_BLACK_SN850X_2000GB_222503A00551"
-# DISK_DEVICE="/dev/sdb" # Descomente para teste em VirtualBox
+# Seleção automática do disco baseada no ambiente (Real vs VM)
+if systemd-detect-virt | grep -q "none"; then
+    # Hardware Real (WD SN850X)
+    DISK_DEVICE="/dev/disk/by-id/nvme-WD_BLACK_SN850X_2000GB_222503A00551"
+else
+    # Ambiente Virtual (Teste)
+    DISK_DEVICE="/dev/sdb"
+fi
 
 POOL_NAME="tank"
 STORAGE_ID_VM="VM-Storage"
 DATASTORE_PBS="Backup-PBS"
 ZFS_ARC_GB=8
-CPU_GOVERNOR="powersave" # 'powersave' é o modo Balanceado correto para Intel 12/13/14th gen
+CPU_GOVERNOR="powersave" # 'powersave' = Balanceado (Recomendado para Intel moderno)
 ENABLE_ENCRYPTION="yes"  # "yes" ou "no"
 # ------------------------------------------------------------------------------
 
@@ -30,7 +34,7 @@ RD=$(echo "\033[01;31m")
 GN=$(echo "\033[1;92m")
 CL=$(echo "\033[m")
 
-# Função de Cabeçalho
+# Função de Cabeçalho com Hardware Info
 header() {
     clear
     echo -e "${BL}
@@ -39,8 +43,20 @@ header() {
  /    \/ (_/\) _)(  O ( (_ \ )   /
  \_/\_/\____/(____)\__/ \___/(__\_)
     ${CL}"
-    echo -e "${YW}Master Setup: i9-13900K + RTX 3090 Ti${CL}"
+    echo -e "${YW}HARDWARE VALIDADO (Target):${CL}"
+    echo -e " • MB:  ${GN}ASUS ROG MAXIMUS Z790 HERO${CL}"
+    echo -e " • CPU: ${GN}Intel Core i9-13900K${CL}"
+    echo -e " • GPU: ${GN}NVIDIA GeForce RTX 3090 Ti${CL}"
+    echo -e " • RAM: ${GN}64GB DDR5${CL}"
+    echo -e " • SSD: ${GN}WD Black SN850X 2TB (Data)${CL} + NVMe 512GB (OS)"
     echo ""
+    
+    # Aviso se estiver em VM
+    if ! systemd-detect-virt | grep -q "none"; then
+        echo -e "${RD}[!] AMBIENTE VIRTUAL DETECTADO ($(systemd-detect-virt))${CL}"
+        echo -e "${RD}[!] A Etapa 03 (Hardware Tune) será bloqueada.${CL}"
+        echo ""
+    fi
 }
 
 # Verifica Root
@@ -61,7 +77,6 @@ step_01_system() {
         echo "# Movido para debian.sources" > /etc/apt/sources.list
     fi
 
-    # Debian Base
     cat <<EOF > /etc/apt/sources.list.d/debian.sources
 Types: deb
 URIs: http://deb.debian.org/debian
@@ -76,7 +91,6 @@ Components: main contrib non-free non-free-firmware
 Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
 EOF
 
-    # Proxmox + PBS + Ceph
     cat <<EOF > /etc/apt/sources.list.d/pve-no-subscription.sources
 Types: deb
 URIs: http://download.proxmox.com/debian/pve
@@ -103,7 +117,6 @@ EOF
     echo "Instalando ferramentas..."
     apt install -y intel-microcode build-essential pve-headers vim htop btop curl git fastfetch ethtool net-tools
 
-    # Nag Removal
     if [ -f /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js ]; then
         sed -Ezi.bak "s/(Ext.Msg.show\(\{\s+title: gettext\('No valid subscription'\),)/void\(\{ \/\/\1/g" /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js
         systemctl restart pveproxy.service
@@ -123,16 +136,16 @@ step_02_gui() {
     echo "Confirme:"
     read -s PASSWORD_CONFIRM
     
-    if [ "$PASSWORD" != "$PASSWORD_CONFIRM" ]; then echo "${RD}Senhas não conferem!${CL}"; return; fi
+    if [ "$PASSWORD" != "$PASSWORD_CONFIRM" ]; then echo "${RD}Senhas não conferem!${CL}"; read -p "Enter..."; return; fi
 
-    # Instalação com correção de drivers de vídeo
     apt install -y xfce4 xfce4-goodies lightdm chromium sudo xorg xserver-xorg-video-all xserver-xorg-input-all --no-install-recommends
 
     if id "$NEW_USER" &>/dev/null; then
-        echo "$NEW_USER:$PASSWORD" | chpasswd
+        # printf garante que senhas com hífen (-) não sejam interpretadas como flags
+        printf "%s:%s\n" "$NEW_USER" "$PASSWORD" | chpasswd
     else
         useradd -m -s /bin/bash "$NEW_USER"
-        echo "$NEW_USER:$PASSWORD" | chpasswd
+        printf "%s:%s\n" "$NEW_USER" "$PASSWORD" | chpasswd
         usermod -aG sudo "$NEW_USER"
     fi
 
@@ -150,22 +163,27 @@ EOF
 
     chown -R "$NEW_USER:$NEW_USER" "/home/$NEW_USER/.config"
     systemctl enable lightdm
-    # Inicia o lightdm se não estiver rodando
-    if ! systemctl is-active --quiet lightdm; then
-        systemctl start lightdm
-    fi
     
     echo -e "${GN}✅ Etapa 02 Concluída.${CL}"
+    echo -e "${YW}Nota: A interface gráfica iniciará no próximo Reboot.${CL}"
     read -p "Pressione Enter para voltar ao menu..."
 }
 
 step_03_hardware() {
+    # Proteção contra execução em VM
+    if ! systemd-detect-virt | grep -q "none"; then
+        echo -e "${RD}ERRO: Esta etapa é exclusiva para Hardware Real (Bare Metal).${CL}"
+        echo -e "Detectado ambiente virtual: $(systemd-detect-virt)"
+        echo "Pressione Enter para voltar..."
+        read
+        return
+    fi
+
     echo -e "${GN}>>> ETAPA 03: Hardware Tune (i9 + GPU)${CL}"
     
     ZFS_BYTES=$(($ZFS_ARC_GB * 1024 * 1024 * 1024))
     cp /etc/kernel/cmdline /etc/kernel/cmdline.bak
     
-    # Parâmetros vitais para i9-13900K + 3090 Ti
     CMDLINE="intel_iommu=on iommu=pt pci=noaer nvme_core.default_ps_max_latency_us=0 split_lock_detect=off video=efifb:off video=vesafb:off video=simplefb:off initcall_blacklist=sysfb_init"
     
     echo "root=ZFS=rpool/ROOT/pve-1 boot=zfs $CMDLINE" > /etc/kernel/cmdline
@@ -186,7 +204,6 @@ step_03_hardware() {
         echo "GPU Detectada: $GPU_IDS"
         echo "options vfio-pci ids=$GPU_IDS disable_vga=1" > /etc/modprobe.d/vfio.conf
         
-        # Módulos
         echo "vfio" > /etc/modules
         echo "vfio_iommu_type1" >> /etc/modules
         echo "vfio_pci" >> /etc/modules
@@ -199,7 +216,7 @@ blacklist nvidia_drm
 blacklist nvidia_modeset
 EOF
     else
-        echo "${YW}[AVISO] GPU Nvidia não encontrada (Normal se for VM).${CL}"
+        echo "${YW}[AVISO] GPU Nvidia não encontrada.${CL}"
     fi
 
     update-initramfs -u -k all
@@ -210,15 +227,12 @@ EOF
 step_04_storage() {
     echo -e "${GN}>>> ETAPA 04: Storage ZFS ($DISK_DEVICE)${CL}"
     
-    # --- TRAVA DE SEGURANÇA ---
     if zpool list -o name -H | grep -q "^$POOL_NAME$"; then
         echo -e "${RD}ERRO CRÍTICO: O Pool ZFS '$POOL_NAME' JÁ EXISTE!${CL}"
-        echo "Se você rodar isso, vai destruir todos os dados e backups existentes."
-        echo "O script abortou para proteger seus dados."
-        read -p "Pressione Enter para voltar ao menu..."
+        echo "Operação abortada para proteger dados."
+        read -p "Enter..."
         return
     fi
-    # --------------------------
 
     if [ ! -b "$DISK_DEVICE" ]; then echo "${RD}Erro: Disco $DISK_DEVICE não encontrado!${CL}"; read -p "Enter..." ; return; fi
     
@@ -231,7 +245,6 @@ step_04_storage() {
     sgdisk --zap-all "$DISK_DEVICE" > /dev/null
     wipefs -a "$DISK_DEVICE" > /dev/null
 
-    # -o autotrim=on (minúsculo) é a correção que aplicamos antes
     ZPOOL_ARGS="-f -o ashift=12 -o autotrim=on -O compression=lz4 -O atime=off -O acltype=posixacl -O xattr=sa"
     
     if [ "$ENABLE_ENCRYPTION" == "yes" ]; then
@@ -273,20 +286,26 @@ step_06_pbs() {
     apt install -y proxmox-backup-server proxmox-backup-client
     
     ZFS_PATH="/$POOL_NAME/backups"
-    chown -R backup:backup $ZFS_PATH
-    chmod 700 $ZFS_PATH
+    if [ -d "$ZFS_PATH" ]; then
+        chown -R backup:backup $ZFS_PATH
+        chmod 700 $ZFS_PATH
+    else
+        echo "${RD}Aviso: Pasta $ZFS_PATH não encontrada. Rode a Etapa 04 antes.${CL}"
+        read -p "Enter..."
+        return
+    fi
 
     if ! proxmox-backup-manager datastore list | grep -q "$DATASTORE_PBS"; then
         proxmox-backup-manager datastore create $DATASTORE_PBS $ZFS_PATH
     fi
 
-    # Fix awk $NF
     FINGERPRINT=$(proxmox-backup-manager cert info | grep "Fingerprint" | awk '{print $NF}')
     
     echo "Digite a senha do ROOT do Linux para conectar o PVE ao PBS:"
     read -s PBS_PASSWORD
 
     if ! pvesm status | grep -q "$DATASTORE_PBS"; then
+        # Usamos printf para passar a senha de forma segura se ela tiver caracteres especiais
         pvesm add pbs "$DATASTORE_PBS" \
             --server 127.0.0.1 \
             --datastore "$DATASTORE_PBS" \
@@ -327,6 +346,23 @@ EOF
     read -p "Pressione Enter para voltar ao menu..."
 }
 
+step_08_pvescripts() {
+    echo -e "${GN}>>> ETAPA 08: PVEScriptsLocal (Gerenciador de Scripts)${CL}"
+    echo -e "Isso irá baixar e executar o instalador oficial do PVEScriptsLocal LXC."
+    echo -e "O script original é mantido pela comunidade."
+    echo ""
+    echo "Deseja prosseguir? (s/n)"
+    read -r CONFIRM
+    if [[ "$CONFIRM" =~ ^[Ss]$ ]]; then
+        # Executa o instalador oficial direto do repositório da comunidade
+        bash -c "$(wget -qLO - https://github.com/community-scripts/ProxmoxVE/raw/main/ct/pvescriptslocal.sh)"
+        echo -e "${GN}✅ Instalação do PVEScriptsLocal finalizada.${CL}"
+    else
+        echo "Operação cancelada."
+    fi
+    read -p "Pressione Enter para voltar ao menu..."
+}
+
 # ==============================================================================
 # LOOP DO MENU PRINCIPAL
 # ==============================================================================
@@ -336,11 +372,19 @@ while true; do
     echo -e "${YW}Selecione uma etapa para executar:${CL}"
     echo "1) [Sistema]  Base, Repositórios e Microcode"
     echo "2) [Desktop]  GUI XFCE e Kiosk Mode"
-    echo "3) [Hardware] Kernel, IOMMU, GPU e ZFS RAM"
+    
+    # Mostra a opção 3 em vermelho/bloqueado se for VM
+    if systemd-detect-virt | grep -q "none"; then
+        echo "3) [Hardware] Kernel, IOMMU, GPU e ZFS RAM"
+    else
+        echo -e "${RD}3) [Hardware] (Bloqueado em VM)${CL}"
+    fi
+    
     echo "4) [Storage]  Formatar 2TB, ZFS e Criptografia"
     echo "5) [Polish]   Ajuste de Swap"
     echo "6) [Backup]   Instalar PBS Local"
     echo "7) [Unlock]   Configurar Boot Unlock (YubiKey)"
+    echo "8) [Extras]   Criar Container PVEScriptsLocal"
     echo "------------------------------------------------"
     echo "R) REINICIAR O SISTEMA (Recomendado após Etapa 3)"
     echo "0) Sair"
@@ -355,8 +399,9 @@ while true; do
         5) step_05_polish ;;
         6) step_06_pbs ;;
         7) step_07_boot_unlock ;;
+        8) step_08_pvescripts ;;
         r|R) reboot ;;
         0) exit 0 ;;
-        *) echo "Opção inválida." ;;
+        *) echo "Opção inválida." ; sleep 1 ;;
     esac
 done
