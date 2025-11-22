@@ -188,9 +188,7 @@ step_03_hardware() {
     echo "root=ZFS=rpool/ROOT/pve-1 boot=zfs $CMDLINE" > /etc/kernel/cmdline
     proxmox-boot-tool refresh
 
-    echo "Configurando CPU Governor ($CPU_GOVERNOR)..."
     apt install -y linux-cpupower
-    
     cat <<EOF > /etc/systemd/system/cpupower-governor.service
 [Unit]
 Description=Set CPU Governor to $CPU_GOVERNOR
