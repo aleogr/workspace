@@ -1,14 +1,14 @@
 #!/bin/bash
 # ==============================================================================
-# MASTER SETUP SCRIPT - ALEOGR-PC
+# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final Gold v0.1.2)
 # ==============================================================================
 # Automação completa para Workstation Proxmox com Passthrough e ZFS.
-# Versionamento: SemVer 2.0.0
+# Changelog 0.1.2: Adicionada criação automática de Swap ZFS no Step 5.
 # ==============================================================================
 
 # --- VARIÁVEIS GLOBAIS (EDITE AQUI) ---
 # ------------------------------------------------------------------------------
-SCRIPT_VERSION="0.1.1"
+SCRIPT_VERSION="0.1.2"
 NEW_USER="aleogr"
 DEBIAN_CODENAME="trixie"
 
@@ -291,11 +291,42 @@ step_04_storage() {
 }
 
 step_05_polish() {
-    echo -e "${GN}>>> ETAPA 05: Ajuste de Memória (Swap)${CL}"
+    echo -e "${GN}>>> ETAPA 05: Ajuste de Memória e Criação de Swap ZFS${CL}"
+    
+    # 1. Configurar Swappiness
     CONFIG_FILE="/etc/sysctl.d/99-pve-swappiness.conf"
-    echo "# Configuração customizada" > "$CONFIG_FILE"
+    echo "# Configuração customizada para Proxmox ZFS" > "$CONFIG_FILE"
     echo "vm.swappiness=10" >> "$CONFIG_FILE"
     sysctl --system > /dev/null
+    echo "Swappiness definido para 10."
+
+    # 2. Criar Swap (Verifica se existe)
+    if [ $(swapon --show --noheadings | wc -l) -eq 0 ]; then
+        echo "Nenhuma Swap detectada. Criando Swap de 8GB no rpool..."
+        
+        # Zvol otimizado para Swap (evita deadlocks)
+        zfs create -V 8G -b $(getconf PAGESIZE) \
+            -o compression=zle \
+            -o logbias=throughput \
+            -o sync=always \
+            -o primarycache=metadata \
+            -o secondarycache=none \
+            -o com.sun:auto-snapshot=false \
+            rpool/swap
+        
+        mkswap -f /dev/zvol/rpool/swap
+        swapon /dev/zvol/rpool/swap
+        
+        if ! grep -q "/dev/zvol/rpool/swap" /etc/fstab; then
+            echo "/dev/zvol/rpool/swap none swap defaults 0 0" >> /etc/fstab
+        fi
+        
+        echo -e "${GN}Swap ZFS de 8GB criada e ativada com sucesso!${CL}"
+    else
+        CURRENT_SWAP=$(free -h | grep Swap | awk '{print $2}')
+        echo -e "${YW}Swap já existe ($CURRENT_SWAP). Pulando criação.${CL}"
+    fi
+
     echo -e "${GN}✅ Etapa 05 Concluída.${CL}"
     sleep 1
 }
@@ -414,12 +445,12 @@ while true; do
         echo -e "${RD}3) [Hardware] (Bloqueado em VM)${CL}"
     fi
     echo "4) [Storage]  Formatar Disco de Dados, ZFS e Criptografia"
-    echo "5) [Polish]   Ajuste de Swap"
+    echo "5) [Polish]   Ajuste de Swap e Swappiness"
     echo "6) [Backup]   Instalar PBS Local"
     echo "7) [Unlock]   Configurar Boot Unlock (YubiKey)"
     echo "8) [Extras]   Criar Container PVEScriptsLocal"
     echo "------------------------------------------------"
-    echo "R) REINICIAR O SISTEMA (Recomendado após Etapa 3)"
+    echo "R) REINICIAR O SISTEMA"
     echo "0) Sair"
     echo ""
     read -p "Opção: " OPTION
