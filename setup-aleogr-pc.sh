@@ -1,14 +1,14 @@
 #!/bin/bash
 # ==============================================================================
-# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final v0.3.4)
+# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final v0.3.5)
 # ==============================================================================
 # Automação completa para Workstation Proxmox com Passthrough, ZFS e Hardening.
-# Versionamento: SemVer 0.3.4 (Fix: U2F Mapping usando 'paste' para evitar ::)
+# Versionamento: SemVer 0.3.5 (Fix: U2F Mapping Hygiene - Trimming newlines)
 # ==============================================================================
 
 # --- VARIÁVEIS GLOBAIS (EDITE AQUI) ---
 # ------------------------------------------------------------------------------
-SCRIPT_VERSION="0.3.4"
+SCRIPT_VERSION="0.3.5"
 NEW_USER="aleogr"
 DEBIAN_CODENAME="trixie"
 
@@ -36,7 +36,7 @@ RD=$(echo "\033[01;31m")
 GN=$(echo "\033[1;92m")
 CL=$(echo "\033[m")
 
-# Função de Cabeçalho
+# Função de Cabeçalho (HereDoc para segurança ASCII)
 header() {
     clear
     echo -e "${BL}"
@@ -191,9 +191,7 @@ step_03_hardware() {
     echo "root=ZFS=rpool/ROOT/pve-1 boot=zfs $CMDLINE" > /etc/kernel/cmdline
     proxmox-boot-tool refresh
 
-    echo "Configurando CPU Governor ($CPU_GOVERNOR)..."
     apt install -y linux-cpupower
-    
     cat <<EOF > /etc/systemd/system/cpupower-governor.service
 [Unit]
 Description=Set CPU Governor to $CPU_GOVERNOR
@@ -317,7 +315,7 @@ step_05_memory() {
             udevadm settle
             sleep 1
         else
-            echo "Volume rpool/swap já existe. Pulando criação."
+            echo "Aviso: Volume 'rpool/swap' já existe. Pulando criação."
         fi
         
         echo "Ativando Swap..."
@@ -489,7 +487,7 @@ step_10_hardening() {
     echo -e "${GN}>>> CADASTRO DE CHAVES YUBIKEY${CL}"
     mkdir -p /etc/Yubico
     MAPPING_FILE="/etc/Yubico/u2f_mappings"
-    KEYS_TEMP_FILE=$(mktemp) # Arquivo temporário para evitar bagunça de string
+    KEYS_TEMP_FILE=$(mktemp)
 
     if grep -q "^$NEW_USER" "$MAPPING_FILE" 2>/dev/null; then
         echo -e "${YW}Aviso: Já existem chaves cadastradas para $NEW_USER.${CL}"
@@ -512,9 +510,12 @@ step_10_hardening() {
         
         KEY_DATA=$(pamu2fcfg -n)
         
-        if [ -n "$KEY_DATA" ]; then
-            # Salva no arquivo temporário (uma chave por linha)
-            echo "$KEY_DATA" >> "$KEYS_TEMP_FILE"
+        # FIX 3.6: Remove TODAS as quebras de linha e espaços em branco da string
+        KEY_DATA_CLEAN=$(echo -n "$KEY_DATA" | tr -d '\n\r[:space:]')
+        
+        if [ -n "$KEY_DATA_CLEAN" ]; then
+            # Salva no arquivo temporário usando printf para garantir nova linha limpa
+            printf "%s\n" "$KEY_DATA_CLEAN" >> "$KEYS_TEMP_FILE"
             echo -e "${GN}Chave capturada!${CL}"
         else
             echo -e "${RD}Falha ao capturar chave. Tente novamente.${CL}"
@@ -529,12 +530,17 @@ step_10_hardening() {
         COUNT=$((COUNT+1))
     done
 
+    # Verifica se o arquivo temporário tem conteúdo
     if [ -s "$KEYS_TEMP_FILE" ]; then
-        # CORREÇÃO CRÍTICA: Usar 'paste' para juntar as linhas com ':'
-        JOINED_KEYS=$(paste -sd: "$KEYS_TEMP_FILE")
+        touch "$MAPPING_FILE"
+        # Remove entrada anterior do usuário
+        grep -v "^$NEW_USER" "$MAPPING_FILE" > "${MAPPING_FILE}.tmp"
         
-        # Grava no formato correto: usuario:chave1:chave2
-        echo "${NEW_USER}:${JOINED_KEYS}" > "$MAPPING_FILE"
+        # FIX 3.6: grep -v '^$' garante que não tem linha vazia antes de dar o paste
+        JOINED_KEYS=$(grep -v '^$' "$KEYS_TEMP_FILE" | paste -sd: -)
+        
+        echo "${NEW_USER}:${JOINED_KEYS}" >> "${MAPPING_FILE}.tmp"
+        mv "${MAPPING_FILE}.tmp" "$MAPPING_FILE"
         
         echo -e "${GN}✅ Chaves salvas com sucesso em $MAPPING_FILE${CL}"
     else
