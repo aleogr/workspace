@@ -1,14 +1,14 @@
 #!/bin/bash
 # ==============================================================================
-# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final v0.3.1)
+# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final v0.3.2)
 # ==============================================================================
 # Automação completa para Workstation Proxmox com Passthrough, ZFS e Hardening.
-# Versionamento: SemVer 0.3.1 (UI Patch: Alinhamento do Menu)
+# Versionamento: SemVer 0.3.2 (Fix: Formatação correta do u2f_mappings)
 # ==============================================================================
 
 # --- VARIÁVEIS GLOBAIS (EDITE AQUI) ---
 # ------------------------------------------------------------------------------
-SCRIPT_VERSION="0.3.1"
+SCRIPT_VERSION="0.3.2"
 NEW_USER="aleogr"
 DEBIAN_CODENAME="trixie"
 
@@ -36,7 +36,7 @@ RD=$(echo "\033[01;31m")
 GN=$(echo "\033[1;92m")
 CL=$(echo "\033[m")
 
-# Função de Cabeçalho
+# Função de Cabeçalho (HereDoc para segurança ASCII)
 header() {
     clear
     echo -e "${BL}"
@@ -299,11 +299,9 @@ step_05_memory() {
     sysctl --system > /dev/null
     echo "Swappiness definido para 10."
 
-    # 1. Verificação Externa: Swap está ativa no OS?
     if [ $(swapon --show --noheadings | wc -l) -eq 0 ]; then
         echo "Nenhuma Swap ativa. Verificando volume ZFS..."
         
-        # 2. Verificação Interna: O disco ZFS já existe? (AQUI ESTA A CORREÇÃO DA IDEMPOTÊNCIA)
         if ! zfs list rpool/swap >/dev/null 2>&1; then
             echo "Criando volume rpool/swap (8GB)..."
             zfs create -V 8G -b $(getconf PAGESIZE) \
@@ -314,15 +312,12 @@ step_05_memory() {
                 -o secondarycache=none \
                 -o com.sun:auto-snapshot=false \
                 rpool/swap
-            
-            # Espera o dispositivo aparecer no /dev
             udevadm settle
             sleep 1
         else
-            echo "Aviso: Volume 'rpool/swap' já existe. Pulando criação."
+            echo "Volume rpool/swap já existe. Pulando criação."
         fi
         
-        # Formatar e Ativar (Seguro rodar múltiplas vezes)
         echo "Ativando Swap..."
         mkswap -f /dev/zvol/rpool/swap
         swapon /dev/zvol/rpool/swap
@@ -479,14 +474,11 @@ step_10_hardening() {
     fi
 
     echo "Configurando PAM (Idempotente)..."
-    # Adiciona configuração de U2F se não existir
     if ! grep -q "pam_u2f.so" /etc/pam.d/common-auth; then
-        # nouserok = Permite login se o usuário não tiver chave cadastrada (Safety net)
         sed -i '1i auth sufficient pam_u2f.so cue nouserok authfile=/etc/Yubico/u2f_mappings' /etc/pam.d/common-auth
         echo "[OK] PAM Auth atualizado."
     fi
 
-    # Adiciona regras de senha forte se não existir
     if ! grep -q "pam_pwquality.so" /etc/pam.d/common-password; then
         sed -i '1i password requisite pam_pwquality.so retry=3 minlen=12 difok=4 ucredit=-1 lcredit=-1 dcredit=-1 ocredit=-1 enforce_for_root' /etc/pam.d/common-password
         echo "[OK] PAM Password Quality atualizado."
@@ -518,7 +510,12 @@ step_10_hardening() {
         KEY_DATA=$(pamu2fcfg -n)
         
         if [ -n "$KEY_DATA" ]; then
-            KEYS="${KEYS}:${KEY_DATA}"
+            # CORREÇÃO CRÍTICA: Lógica limpa para evitar duplicação de dois-pontos
+            if [ -z "$KEYS" ]; then
+                KEYS="$KEY_DATA"
+            else
+                KEYS="$KEYS:$KEY_DATA"
+            fi
             echo -e "${GN}Chave capturada!${CL}"
         else
             echo -e "${RD}Falha ao capturar chave. Tente novamente.${CL}"
@@ -536,7 +533,7 @@ step_10_hardening() {
     if [ -n "$KEYS" ]; then
         touch "$MAPPING_FILE"
         grep -v "^$NEW_USER" "$MAPPING_FILE" > "${MAPPING_FILE}.tmp"
-        echo "${NEW_USER}${KEYS}" >> "${MAPPING_FILE}.tmp"
+        echo "${NEW_USER}:${KEYS}" >> "${MAPPING_FILE}.tmp"
         mv "${MAPPING_FILE}.tmp" "$MAPPING_FILE"
         echo -e "${GN}✅ Chaves salvas com sucesso em $MAPPING_FILE${CL}"
     else
@@ -546,22 +543,16 @@ step_10_hardening() {
     read -p "Pressione Enter para voltar ao menu..."
 }
 
-# ==============================================================================
-# LOOP DO MENU PRINCIPAL
-# ==============================================================================
-
 while true; do
     header
     echo -e "${YW}FASE 1: SISTEMA & HARDWARE (Requer Reboot ao final)${CL}"
     echo " 1) [Sistema]    Base, Repositórios e Microcode"
     echo " 2) [Desktop]    GUI XFCE e Kiosk Mode"
-    
     if systemd-detect-virt | grep -q "none"; then
         echo " 3) [Hardware]   Kernel, IOMMU, GPU e ZFS RAM"
     else
         echo -e "${RD} 3) [Hardware]   (Bloqueado em VM)${CL}"
     fi
-    
     echo ""
     echo -e "${YW}FASE 2: DADOS & SERVIÇOS (Executar após Reboot)${CL}"
     echo " 4) [Storage]    Formatar Disco de Dados, ZFS e Criptografia"
