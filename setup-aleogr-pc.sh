@@ -1,14 +1,14 @@
 #!/bin/bash
 # ==============================================================================
-# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final v0.3.5)
+# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final v0.3.6)
 # ==============================================================================
 # Automação completa para Workstation Proxmox com Passthrough, ZFS e Hardening.
-# Versionamento: SemVer 0.3.5 (Fix: U2F Mapping Hygiene - Trimming newlines)
+# Versionamento: SemVer 0.3.6 (Fix: U2F Logic - Removida inserção manual de :)
 # ==============================================================================
 
 # --- VARIÁVEIS GLOBAIS (EDITE AQUI) ---
 # ------------------------------------------------------------------------------
-SCRIPT_VERSION="0.3.5"
+SCRIPT_VERSION="0.3.6"
 NEW_USER="aleogr"
 DEBIAN_CODENAME="trixie"
 
@@ -36,7 +36,7 @@ RD=$(echo "\033[01;31m")
 GN=$(echo "\033[1;92m")
 CL=$(echo "\033[m")
 
-# Função de Cabeçalho (HereDoc para segurança ASCII)
+# Função de Cabeçalho
 header() {
     clear
     echo -e "${BL}"
@@ -191,7 +191,9 @@ step_03_hardware() {
     echo "root=ZFS=rpool/ROOT/pve-1 boot=zfs $CMDLINE" > /etc/kernel/cmdline
     proxmox-boot-tool refresh
 
+    echo "Configurando CPU Governor ($CPU_GOVERNOR)..."
     apt install -y linux-cpupower
+    
     cat <<EOF > /etc/systemd/system/cpupower-governor.service
 [Unit]
 Description=Set CPU Governor to $CPU_GOVERNOR
@@ -487,20 +489,24 @@ step_10_hardening() {
     echo -e "${GN}>>> CADASTRO DE CHAVES YUBIKEY${CL}"
     mkdir -p /etc/Yubico
     MAPPING_FILE="/etc/Yubico/u2f_mappings"
-    KEYS_TEMP_FILE=$(mktemp)
-
+    
+    # Garante que a variável KEYS esteja vazia e contenha apenas o usuário inicialmente
+    # MAS ESPERE! O comando 'pamu2fcfg -n' RETORNA OS DOIS PONTOS NO INICIO (:keyhandle...)
+    # Então, a estratégia correta é simplesmente concatenar tudo e limpar no final.
+    
     if grep -q "^$NEW_USER" "$MAPPING_FILE" 2>/dev/null; then
         echo -e "${YW}Aviso: Já existem chaves cadastradas para $NEW_USER.${CL}"
         echo "Deseja sobrescrever/adicionar novas? (s/n)"
         read -r OVR
         if [[ ! "$OVR" =~ ^[Ss]$ ]]; then 
-            rm "$KEYS_TEMP_FILE"
             echo "Pressione Enter para voltar ao menu..."
             read
             return 
         fi
     fi
 
+    # FIX 3.7: String acumulativa simples
+    FINAL_STRING="$NEW_USER" 
     COUNT=1
     while true; do
         echo -e "${BL}--- Cadastrando Chave #$COUNT ---${CL}"
@@ -508,14 +514,14 @@ step_10_hardening() {
         read
         echo "Toque no botão da YubiKey agora (quando piscar)..."
         
+        # Captura a saída bruta (que já vem com dois pontos no começo: ':dados...')
         KEY_DATA=$(pamu2fcfg -n)
         
-        # FIX 3.6: Remove TODAS as quebras de linha e espaços em branco da string
-        KEY_DATA_CLEAN=$(echo -n "$KEY_DATA" | tr -d '\n\r[:space:]')
+        # Limpa quebras de linha
+        KEY_DATA_CLEAN=$(echo -n "$KEY_DATA" | tr -d '\n\r')
         
         if [ -n "$KEY_DATA_CLEAN" ]; then
-            # Salva no arquivo temporário usando printf para garantir nova linha limpa
-            printf "%s\n" "$KEY_DATA_CLEAN" >> "$KEYS_TEMP_FILE"
+            FINAL_STRING="${FINAL_STRING}${KEY_DATA_CLEAN}"
             echo -e "${GN}Chave capturada!${CL}"
         else
             echo -e "${RD}Falha ao capturar chave. Tente novamente.${CL}"
@@ -530,24 +536,16 @@ step_10_hardening() {
         COUNT=$((COUNT+1))
     done
 
-    # Verifica se o arquivo temporário tem conteúdo
-    if [ -s "$KEYS_TEMP_FILE" ]; then
+    if [ "$FINAL_STRING" != "$NEW_USER" ]; then
         touch "$MAPPING_FILE"
-        # Remove entrada anterior do usuário
         grep -v "^$NEW_USER" "$MAPPING_FILE" > "${MAPPING_FILE}.tmp"
-        
-        # FIX 3.6: grep -v '^$' garante que não tem linha vazia antes de dar o paste
-        JOINED_KEYS=$(grep -v '^$' "$KEYS_TEMP_FILE" | paste -sd: -)
-        
-        echo "${NEW_USER}:${JOINED_KEYS}" >> "${MAPPING_FILE}.tmp"
+        echo "$FINAL_STRING" >> "${MAPPING_FILE}.tmp"
         mv "${MAPPING_FILE}.tmp" "$MAPPING_FILE"
-        
         echo -e "${GN}✅ Chaves salvas com sucesso em $MAPPING_FILE${CL}"
     else
         echo "${YW}Nenhuma chave foi cadastrada.${CL}"
     fi
-    
-    rm "$KEYS_TEMP_FILE"
+
     read -p "Pressione Enter para voltar ao menu..."
 }
 
