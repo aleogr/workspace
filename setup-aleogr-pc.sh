@@ -1,14 +1,14 @@
 #!/bin/bash
 # ==============================================================================
-# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final v0.2.1)
+# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final v0.2.2)
 # ==============================================================================
 # Automação completa para Workstation Proxmox com Passthrough, ZFS e Multi-Arch.
-# Versionamento: SemVer 0.2.1 (Docs Update: Cloud-Init Workflow)
+# Versionamento: SemVer 0.2.2 (Hotfix: Step 09 Safe Mode - LXC Only)
 # ==============================================================================
 
 # --- VARIÁVEIS GLOBAIS (EDITE AQUI) ---
 # ------------------------------------------------------------------------------
-SCRIPT_VERSION="0.2.1"
+SCRIPT_VERSION="0.2.2"
 NEW_USER="aleogr"
 DEBIAN_CODENAME="trixie"
 
@@ -188,7 +188,9 @@ step_03_hardware() {
     echo "root=ZFS=rpool/ROOT/pve-1 boot=zfs $CMDLINE" > /etc/kernel/cmdline
     proxmox-boot-tool refresh
 
+    echo "Configurando CPU Governor ($CPU_GOVERNOR)..."
     apt install -y linux-cpupower
+    
     cat <<EOF > /etc/systemd/system/cpupower-governor.service
 [Unit]
 Description=Set CPU Governor to $CPU_GOVERNOR
@@ -204,6 +206,7 @@ EOF
     
     systemctl daemon-reload
     systemctl enable --now cpupower-governor.service
+    
     cpupower frequency-set -g $CPU_GOVERNOR
 
     echo "options kvm ignore_msrs=1 report_ignored_msrs=0" > /etc/modprobe.d/kvm.conf
@@ -297,7 +300,7 @@ step_05_memory() {
     echo "Swappiness definido para 10."
 
     if [ $(swapon --show --noheadings | wc -l) -eq 0 ]; then
-        echo "Nenhuma Swap detectada. Criando Swap de 8GB no rpool..."
+        echo "Criando Swap de 8GB no rpool..."
         
         zfs create -V 8G -b $(getconf PAGESIZE) \
             -o compression=zle \
@@ -429,38 +432,31 @@ step_08_pvescripts() {
 }
 
 step_09_multiarch() {
-    echo -e "${GN}>>> ETAPA 09: Suporte a Multi-Arquitetura (ARM, RISC-V...)${CL}"
-    echo "Instalando emuladores QEMU e binfmt..."
-    apt install -y qemu-system-arm qemu-system-misc qemu-user-static binfmt-support
+    echo -e "${GN}>>> ETAPA 09: Suporte a Multi-Arquitetura (LXC Only)${CL}"
+    echo -e "${YW}Aviso: Instalar emuladores completos (VMs) pode causar conflitos com Proxmox.${CL}"
+    echo -e "Instalaremos apenas o suporte seguro para Containers (binfmt + qemu-static)."
+    
+    # Instalamos APENAS suporte para Containers (LXC) para não quebrar o pve-qemu-kvm
+    apt install -y qemu-user-static binfmt-support
 
-    echo -e "${GN}✅ Suporte Multi-Arch instalado!${CL}"
-    echo -e "${YW}COMO CRIAR VMS (Workflow Cloud-Init):${CL}"
-    echo "1. x86_64: Use a interface gráfica ou scripts padrão."
-    echo "2. ARM64/Outros: A GUI do Proxmox não configura a BIOS/Machine corretamente."
-    echo "   Use o terminal para criar o Template Base:"
-    echo "   a) qm create ID --arch aarch64 --bios ovmf --machine virt"
-    echo "   b) qm importdisk ID imagem-cloud.qcow2 STORAGE"
-    echo "   c) qm set ID --ide2 STORAGE:cloudinit"
-    echo "   d) Converta em Template e Clone pela GUI."
+    echo -e "${GN}✅ Suporte Multi-Arch para Containers instalado!${CL}"
+    echo -e "${YW}O que você PODE fazer:${CL}"
+    echo " - Rodar Containers LXC de arquitetura ARM64 ou RISC-V."
+    echo -e "${RD}O que você NÃO PODE fazer:${CL}"
+    echo " - Criar VMs completas de outras arquiteturas via Proxmox (para proteger o host)."
     read -p "Pressione Enter para voltar ao menu..."
 }
-
-# ==============================================================================
-# LOOP DO MENU PRINCIPAL
-# ==============================================================================
 
 while true; do
     header
     echo -e "${YW}FASE 1: SISTEMA & HARDWARE (Requer Reboot ao final)${CL}"
     echo "1) [Sistema]  Base, Repositórios e Microcode"
     echo "2) [Desktop]  GUI XFCE e Kiosk Mode"
-    
     if systemd-detect-virt | grep -q "none"; then
         echo "3) [Hardware] Kernel, IOMMU, GPU e ZFS RAM"
     else
         echo -e "${RD}3) [Hardware] (Bloqueado em VM)${CL}"
     fi
-    
     echo ""
     echo -e "${YW}FASE 2: DADOS & SERVIÇOS (Executar após Reboot)${CL}"
     echo "4) [Storage]  Formatar Disco de Dados, ZFS e Criptografia"
@@ -468,7 +464,7 @@ while true; do
     echo "6) [Backup]   Instalar PBS Local"
     echo "7) [Unlock]   Configurar Boot Unlock (YubiKey)"
     echo "8) [Extras]   Criar Container PVEScriptsLocal"
-    echo "9) [Emulation] Suporte Multi-Arquitetura"
+    echo "9) [Emulation] Suporte Multi-Arquitetura (LXC Only)"
     echo "------------------------------------------------"
     echo "R) REINICIAR O SISTEMA"
     echo "0) Sair"
