@@ -1,14 +1,14 @@
 #!/bin/bash
 # ==============================================================================
-# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final Gold v2.10)
+# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final v0.2.1)
 # ==============================================================================
-# Automação completa para Workstation Proxmox com Passthrough e ZFS.
-# Changelog 0.1.4: Fixado Swap em 8GB e renomeada etapa para 'Memory'.
+# Automação completa para Workstation Proxmox com Passthrough, ZFS e Multi-Arch.
+# Versionamento: SemVer 0.2.1 (Docs Update: Cloud-Init Workflow)
 # ==============================================================================
 
 # --- VARIÁVEIS GLOBAIS (EDITE AQUI) ---
 # ------------------------------------------------------------------------------
-SCRIPT_VERSION="0.1.4"
+SCRIPT_VERSION="0.2.1"
 NEW_USER="aleogr"
 DEBIAN_CODENAME="trixie"
 
@@ -36,7 +36,7 @@ RD=$(echo "\033[01;31m")
 GN=$(echo "\033[1;92m")
 CL=$(echo "\033[m")
 
-# Função de Cabeçalho (HereDoc para segurança ASCII)
+# Função de Cabeçalho
 header() {
     clear
     echo -e "${BL}"
@@ -48,7 +48,7 @@ header() {
 EOF
     echo -e "${CL}"
     echo -e "${YW}Workstation: aleogr-pc${CL}"
-    echo -e "${YW}Versão: ${GN}v${SCRIPT_VERSION}${CL} (Development)"
+    echo -e "${YW}Versão: ${GN}v${SCRIPT_VERSION}${CL}"
     echo ""
     echo -e "${YW}HARDWARE VALIDADO (Target):${CL}"
     echo -e " • MB:  ${GN}ASUS ROG MAXIMUS Z790 HERO${CL}"
@@ -188,9 +188,7 @@ step_03_hardware() {
     echo "root=ZFS=rpool/ROOT/pve-1 boot=zfs $CMDLINE" > /etc/kernel/cmdline
     proxmox-boot-tool refresh
 
-    echo "Configurando CPU Governor ($CPU_GOVERNOR)..."
     apt install -y linux-cpupower
-    
     cat <<EOF > /etc/systemd/system/cpupower-governor.service
 [Unit]
 Description=Set CPU Governor to $CPU_GOVERNOR
@@ -206,7 +204,6 @@ EOF
     
     systemctl daemon-reload
     systemctl enable --now cpupower-governor.service
-    
     cpupower frequency-set -g $CPU_GOVERNOR
 
     echo "options kvm ignore_msrs=1 report_ignored_msrs=0" > /etc/modprobe.d/kvm.conf
@@ -293,18 +290,15 @@ step_04_storage() {
 step_05_memory() {
     echo -e "${GN}>>> ETAPA 05: Ajuste de Memória e Criação de Swap ZFS${CL}"
     
-    # 1. Configurar Swappiness
     CONFIG_FILE="/etc/sysctl.d/99-pve-swappiness.conf"
     echo "# Configuração customizada para Proxmox ZFS" > "$CONFIG_FILE"
     echo "vm.swappiness=10" >> "$CONFIG_FILE"
     sysctl --system > /dev/null
     echo "Swappiness definido para 10."
 
-    # 2. Criar Swap (Verifica se existe)
     if [ $(swapon --show --noheadings | wc -l) -eq 0 ]; then
         echo "Nenhuma Swap detectada. Criando Swap de 8GB no rpool..."
         
-        # Zvol otimizado para Swap (evita deadlocks)
         zfs create -V 8G -b $(getconf PAGESIZE) \
             -o compression=zle \
             -o logbias=throughput \
@@ -434,21 +428,47 @@ step_08_pvescripts() {
     read -p "Pressione Enter para voltar ao menu..."
 }
 
+step_09_multiarch() {
+    echo -e "${GN}>>> ETAPA 09: Suporte a Multi-Arquitetura (ARM, RISC-V...)${CL}"
+    echo "Instalando emuladores QEMU e binfmt..."
+    apt install -y qemu-system-arm qemu-system-misc qemu-user-static binfmt-support
+
+    echo -e "${GN}✅ Suporte Multi-Arch instalado!${CL}"
+    echo -e "${YW}COMO CRIAR VMS (Workflow Cloud-Init):${CL}"
+    echo "1. x86_64: Use a interface gráfica ou scripts padrão."
+    echo "2. ARM64/Outros: A GUI do Proxmox não configura a BIOS/Machine corretamente."
+    echo "   Use o terminal para criar o Template Base:"
+    echo "   a) qm create ID --arch aarch64 --bios ovmf --machine virt"
+    echo "   b) qm importdisk ID imagem-cloud.qcow2 STORAGE"
+    echo "   c) qm set ID --ide2 STORAGE:cloudinit"
+    echo "   d) Converta em Template e Clone pela GUI."
+    read -p "Pressione Enter para voltar ao menu..."
+}
+
+# ==============================================================================
+# LOOP DO MENU PRINCIPAL
+# ==============================================================================
+
 while true; do
     header
-    echo -e "${YW}Selecione uma etapa para executar:${CL}"
+    echo -e "${YW}FASE 1: SISTEMA & HARDWARE (Requer Reboot ao final)${CL}"
     echo "1) [Sistema]  Base, Repositórios e Microcode"
     echo "2) [Desktop]  GUI XFCE e Kiosk Mode"
+    
     if systemd-detect-virt | grep -q "none"; then
         echo "3) [Hardware] Kernel, IOMMU, GPU e ZFS RAM"
     else
         echo -e "${RD}3) [Hardware] (Bloqueado em VM)${CL}"
     fi
+    
+    echo ""
+    echo -e "${YW}FASE 2: DADOS & SERVIÇOS (Executar após Reboot)${CL}"
     echo "4) [Storage]  Formatar Disco de Dados, ZFS e Criptografia"
     echo "5) [Memory]   Ajuste de Swap e Swappiness"
     echo "6) [Backup]   Instalar PBS Local"
     echo "7) [Unlock]   Configurar Boot Unlock (YubiKey)"
     echo "8) [Extras]   Criar Container PVEScriptsLocal"
+    echo "9) [Emulation] Suporte Multi-Arquitetura"
     echo "------------------------------------------------"
     echo "R) REINICIAR O SISTEMA"
     echo "0) Sair"
@@ -464,6 +484,7 @@ while true; do
         6) step_06_pbs ;;
         7) step_07_boot_unlock ;;
         8) step_08_pvescripts ;;
+        9) step_09_multiarch ;;
         r|R) reboot ;;
         0) exit 0 ;;
         *) echo "Opção inválida." ; sleep 1 ;;
