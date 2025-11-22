@@ -1,14 +1,14 @@
 #!/bin/bash
 # ==============================================================================
-# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final v0.3.3)
+# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final v0.3.4)
 # ==============================================================================
 # Automação completa para Workstation Proxmox com Passthrough, ZFS e Hardening.
-# Versionamento: SemVer 0.3.3 (Fix: U2F Mapping Syntax using Arrays)
+# Versionamento: SemVer 0.3.4 (Fix: U2F Mapping usando 'paste' para evitar ::)
 # ==============================================================================
 
 # --- VARIÁVEIS GLOBAIS (EDITE AQUI) ---
 # ------------------------------------------------------------------------------
-SCRIPT_VERSION="0.3.3"
+SCRIPT_VERSION="0.3.4"
 NEW_USER="aleogr"
 DEBIAN_CODENAME="trixie"
 
@@ -489,20 +489,20 @@ step_10_hardening() {
     echo -e "${GN}>>> CADASTRO DE CHAVES YUBIKEY${CL}"
     mkdir -p /etc/Yubico
     MAPPING_FILE="/etc/Yubico/u2f_mappings"
-    
+    KEYS_TEMP_FILE=$(mktemp) # Arquivo temporário para evitar bagunça de string
+
     if grep -q "^$NEW_USER" "$MAPPING_FILE" 2>/dev/null; then
         echo -e "${YW}Aviso: Já existem chaves cadastradas para $NEW_USER.${CL}"
         echo "Deseja sobrescrever/adicionar novas? (s/n)"
         read -r OVR
         if [[ ! "$OVR" =~ ^[Ss]$ ]]; then 
+            rm "$KEYS_TEMP_FILE"
             echo "Pressione Enter para voltar ao menu..."
             read
             return 
         fi
     fi
 
-    # FIX: Uso de Array para garantir formatação correta (User:Key1:Key2)
-    KEYS_ARRAY=()
     COUNT=1
     while true; do
         echo -e "${BL}--- Cadastrando Chave #$COUNT ---${CL}"
@@ -513,9 +513,8 @@ step_10_hardening() {
         KEY_DATA=$(pamu2fcfg -n)
         
         if [ -n "$KEY_DATA" ]; then
-            # Remove quebras de linha por segurança
-            CLEAN_KEY=$(echo "$KEY_DATA" | tr -d '\n\r')
-            KEYS_ARRAY+=("$CLEAN_KEY")
+            # Salva no arquivo temporário (uma chave por linha)
+            echo "$KEY_DATA" >> "$KEYS_TEMP_FILE"
             echo -e "${GN}Chave capturada!${CL}"
         else
             echo -e "${RD}Falha ao capturar chave. Tente novamente.${CL}"
@@ -530,23 +529,19 @@ step_10_hardening() {
         COUNT=$((COUNT+1))
     done
 
-    if [ ${#KEYS_ARRAY[@]} -gt 0 ]; then
-        touch "$MAPPING_FILE"
-        # Remove entrada anterior do usuário
-        grep -v "^$NEW_USER" "$MAPPING_FILE" > "${MAPPING_FILE}.tmp"
+    if [ -s "$KEYS_TEMP_FILE" ]; then
+        # CORREÇÃO CRÍTICA: Usar 'paste' para juntar as linhas com ':'
+        JOINED_KEYS=$(paste -sd: "$KEYS_TEMP_FILE")
         
-        # Junta o array com ':' (Internal Field Separator magic)
-        JOINED_KEYS=$(IFS=: ; echo "${KEYS_ARRAY[*]}")
-        
-        # Grava a linha final: usuario:chave1:chave2
-        echo "${NEW_USER}:${JOINED_KEYS}" >> "${MAPPING_FILE}.tmp"
-        mv "${MAPPING_FILE}.tmp" "$MAPPING_FILE"
+        # Grava no formato correto: usuario:chave1:chave2
+        echo "${NEW_USER}:${JOINED_KEYS}" > "$MAPPING_FILE"
         
         echo -e "${GN}✅ Chaves salvas com sucesso em $MAPPING_FILE${CL}"
     else
         echo "${YW}Nenhuma chave foi cadastrada.${CL}"
     fi
-
+    
+    rm "$KEYS_TEMP_FILE"
     read -p "Pressione Enter para voltar ao menu..."
 }
 
