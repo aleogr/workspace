@@ -1,14 +1,14 @@
 #!/bin/bash
 # ==============================================================================
-# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final Gold v0.1.2)
+# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final Gold v2.10)
 # ==============================================================================
 # Automação completa para Workstation Proxmox com Passthrough e ZFS.
-# Changelog 0.1.2: Adicionada criação automática de Swap ZFS no Step 5.
+# Changelog 0.1.4: Fixado Swap em 8GB e renomeada etapa para 'Memory'.
 # ==============================================================================
 
 # --- VARIÁVEIS GLOBAIS (EDITE AQUI) ---
 # ------------------------------------------------------------------------------
-SCRIPT_VERSION="0.1.2"
+SCRIPT_VERSION="0.1.4"
 NEW_USER="aleogr"
 DEBIAN_CODENAME="trixie"
 
@@ -290,7 +290,7 @@ step_04_storage() {
     read -p "Pressione Enter para voltar ao menu..."
 }
 
-step_05_polish() {
+step_05_memory() {
     echo -e "${GN}>>> ETAPA 05: Ajuste de Memória e Criação de Swap ZFS${CL}"
     
     # 1. Configurar Swappiness
@@ -321,7 +321,7 @@ step_05_polish() {
             echo "/dev/zvol/rpool/swap none swap defaults 0 0" >> /etc/fstab
         fi
         
-        echo -e "${GN}Swap ZFS de 8GB criada e ativada com sucesso!${CL}"
+        echo -e "${GN}Swap ZFS de 8GB criada e ativada!${CL}"
     else
         CURRENT_SWAP=$(free -h | grep Swap | awk '{print $2}')
         echo -e "${YW}Swap já existe ($CURRENT_SWAP). Pulando criação.${CL}"
@@ -445,7 +445,7 @@ while true; do
         echo -e "${RD}3) [Hardware] (Bloqueado em VM)${CL}"
     fi
     echo "4) [Storage]  Formatar Disco de Dados, ZFS e Criptografia"
-    echo "5) [Polish]   Ajuste de Swap e Swappiness"
+    echo "5) [Memory]   Ajuste de Swap e Swappiness"
     echo "6) [Backup]   Instalar PBS Local"
     echo "7) [Unlock]   Configurar Boot Unlock (YubiKey)"
     echo "8) [Extras]   Criar Container PVEScriptsLocal"
@@ -460,7 +460,7 @@ while true; do
         2) step_02_gui ;;
         3) step_03_hardware ;;
         4) step_04_storage ;;
-        5) step_05_polish ;;
+        5) step_05_memory ;;
         6) step_06_pbs ;;
         7) step_07_boot_unlock ;;
         8) step_08_pvescripts ;;
