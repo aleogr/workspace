@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# MASTER SETUP SCRIPT - ALEOGR-PC
+# WORKSTATION - ALEOGR-PC
 # ==============================================================================
 # Automação completa para Workstation Proxmox com Passthrough e ZFS.
 # Versionamento: SemVer 2.0.0 (Fase de Desenvolvimento)
@@ -26,7 +26,7 @@ STORAGE_ID_VM="VM-Storage"
 DATASTORE_PBS="Backup-PBS"
 ZFS_ARC_GB=8
 CPU_GOVERNOR="powersave" # 'powersave' = Balanceado (Recomendado para Intel moderno)
-ENABLE_ENCRYPTION="yes"  # "yes" ou "no"
+ENABLE_ENCRYPTION="yes"
 # ------------------------------------------------------------------------------
 
 # Cores
@@ -47,7 +47,7 @@ header() {
  \_/\_/\____/(____)\__/ \___/(__\_)
 EOF
     echo -e "${CL}"
-    echo -e "${YW}Master Setup: i9-13900K + RTX 3090 Ti${CL}"
+    echo -e "${YW}Workstation: aleogr-pc${CL}"
     echo -e "${YW}Versão: ${GN}v${SCRIPT_VERSION}${CL} (Development)"
     echo ""
     echo -e "${YW}HARDWARE VALIDADO (Target):${CL}"
