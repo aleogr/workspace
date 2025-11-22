@@ -1,14 +1,14 @@
 #!/bin/bash
 # ==============================================================================
-# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final v0.3.2)
+# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final v0.3.3)
 # ==============================================================================
 # Automação completa para Workstation Proxmox com Passthrough, ZFS e Hardening.
-# Versionamento: SemVer 0.3.2 (Fix: Formatação correta do u2f_mappings)
+# Versionamento: SemVer 0.3.3 (Fix: U2F Mapping Syntax using Arrays)
 # ==============================================================================
 
 # --- VARIÁVEIS GLOBAIS (EDITE AQUI) ---
 # ------------------------------------------------------------------------------
-SCRIPT_VERSION="0.3.2"
+SCRIPT_VERSION="0.3.3"
 NEW_USER="aleogr"
 DEBIAN_CODENAME="trixie"
 
@@ -36,7 +36,7 @@ RD=$(echo "\033[01;31m")
 GN=$(echo "\033[1;92m")
 CL=$(echo "\033[m")
 
-# Função de Cabeçalho (HereDoc para segurança ASCII)
+# Função de Cabeçalho
 header() {
     clear
     echo -e "${BL}"
@@ -191,7 +191,9 @@ step_03_hardware() {
     echo "root=ZFS=rpool/ROOT/pve-1 boot=zfs $CMDLINE" > /etc/kernel/cmdline
     proxmox-boot-tool refresh
 
+    echo "Configurando CPU Governor ($CPU_GOVERNOR)..."
     apt install -y linux-cpupower
+    
     cat <<EOF > /etc/systemd/system/cpupower-governor.service
 [Unit]
 Description=Set CPU Governor to $CPU_GOVERNOR
@@ -499,7 +501,8 @@ step_10_hardening() {
         fi
     fi
 
-    KEYS=""
+    # FIX: Uso de Array para garantir formatação correta (User:Key1:Key2)
+    KEYS_ARRAY=()
     COUNT=1
     while true; do
         echo -e "${BL}--- Cadastrando Chave #$COUNT ---${CL}"
@@ -510,12 +513,9 @@ step_10_hardening() {
         KEY_DATA=$(pamu2fcfg -n)
         
         if [ -n "$KEY_DATA" ]; then
-            # CORREÇÃO CRÍTICA: Lógica limpa para evitar duplicação de dois-pontos
-            if [ -z "$KEYS" ]; then
-                KEYS="$KEY_DATA"
-            else
-                KEYS="$KEYS:$KEY_DATA"
-            fi
+            # Remove quebras de linha por segurança
+            CLEAN_KEY=$(echo "$KEY_DATA" | tr -d '\n\r')
+            KEYS_ARRAY+=("$CLEAN_KEY")
             echo -e "${GN}Chave capturada!${CL}"
         else
             echo -e "${RD}Falha ao capturar chave. Tente novamente.${CL}"
@@ -530,11 +530,18 @@ step_10_hardening() {
         COUNT=$((COUNT+1))
     done
 
-    if [ -n "$KEYS" ]; then
+    if [ ${#KEYS_ARRAY[@]} -gt 0 ]; then
         touch "$MAPPING_FILE"
+        # Remove entrada anterior do usuário
         grep -v "^$NEW_USER" "$MAPPING_FILE" > "${MAPPING_FILE}.tmp"
-        echo "${NEW_USER}:${KEYS}" >> "${MAPPING_FILE}.tmp"
+        
+        # Junta o array com ':' (Internal Field Separator magic)
+        JOINED_KEYS=$(IFS=: ; echo "${KEYS_ARRAY[*]}")
+        
+        # Grava a linha final: usuario:chave1:chave2
+        echo "${NEW_USER}:${JOINED_KEYS}" >> "${MAPPING_FILE}.tmp"
         mv "${MAPPING_FILE}.tmp" "$MAPPING_FILE"
+        
         echo -e "${GN}✅ Chaves salvas com sucesso em $MAPPING_FILE${CL}"
     else
         echo "${YW}Nenhuma chave foi cadastrada.${CL}"
