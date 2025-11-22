@@ -1,18 +1,16 @@
 #!/bin/bash
 # ==============================================================================
-# WORKSTATION - ALEOGR-PC
+# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final Gold 2.8)
 # ==============================================================================
 # Automação completa para Workstation Proxmox com Passthrough e ZFS.
-# Versionamento: SemVer 2.0.0 (Fase de Desenvolvimento)
+# Correções: Substituição do cpufrequtils pelo linux-cpupower (Debian 13).
 # ==============================================================================
 
 # --- VARIÁVEIS GLOBAIS (EDITE AQUI) ---
-# ------------------------------------------------------------------------------
-SCRIPT_VERSION="0.1.0"
 NEW_USER="aleogr"
 DEBIAN_CODENAME="trixie"
 
-# Seleção automática do disco baseada no ambiente (Real vs VM)
+# Seleção automática do disco
 if systemd-detect-virt | grep -q "none"; then
     # Hardware Real (WD SN850X)
     DISK_DEVICE="/dev/disk/by-id/nvme-WD_BLACK_SN850X_2000GB_222503A00551"
@@ -25,7 +23,7 @@ POOL_NAME="tank"
 STORAGE_ID_VM="VM-Storage"
 DATASTORE_PBS="Backup-PBS"
 ZFS_ARC_GB=8
-CPU_GOVERNOR="powersave" # 'powersave' = Balanceado (Recomendado para Intel moderno)
+CPU_GOVERNOR="powersave" # 'powersave' = Balanceado | 'performance' = Máximo
 ENABLE_ENCRYPTION="yes"
 # ------------------------------------------------------------------------------
 
@@ -36,7 +34,7 @@ RD=$(echo "\033[01;31m")
 GN=$(echo "\033[1;92m")
 CL=$(echo "\033[m")
 
-# Função de Cabeçalho (HereDoc para segurança ASCII)
+# Função de Cabeçalho
 header() {
     clear
     echo -e "${BL}"
@@ -47,9 +45,6 @@ header() {
  \_/\_/\____/(____)\__/ \___/(__\_)
 EOF
     echo -e "${CL}"
-    echo -e "${YW}Workstation: aleogr-pc${CL}"
-    echo -e "${YW}Versão: ${GN}v${SCRIPT_VERSION}${CL} (Development)"
-    echo ""
     echo -e "${YW}HARDWARE VALIDADO (Target):${CL}"
     echo -e " • MB:  ${GN}ASUS ROG MAXIMUS Z790 HERO${CL}"
     echo -e " • CPU: ${GN}Intel Core i9-13900K${CL}"
@@ -167,11 +162,10 @@ Terminal=false
 EOF
 
     chown -R "$NEW_USER:$NEW_USER" "/home/$NEW_USER/.config"
-    
     systemctl enable lightdm
     
     echo -e "${GN}✅ Etapa 02 Concluída.${CL}"
-    echo -e "${YW}Nota: A interface gráfica iniciará no próximo Reboot.${CL}"
+    echo -e "${YW}Nota: GUI inicia no próximo reboot.${CL}"
     read -p "Pressione Enter para voltar ao menu..."
 }
 
@@ -188,10 +182,29 @@ step_03_hardware() {
     echo "root=ZFS=rpool/ROOT/pve-1 boot=zfs $CMDLINE" > /etc/kernel/cmdline
     proxmox-boot-tool refresh
 
-    apt install -y cpufrequtils
-    echo "GOVERNOR=\"$CPU_GOVERNOR\"" > /etc/default/cpufrequtils
-    systemctl disable ondemand --now > /dev/null 2>&1 || true
-    systemctl restart cpufrequtils
+    # CORREÇÃO: Substituição do cpufrequtils pelo linux-cpupower (Moderno)
+    echo "Configurando CPU Governor ($CPU_GOVERNOR)..."
+    apt install -y linux-cpupower
+    
+    # Cria serviço systemd para persistência
+    cat <<EOF > /etc/systemd/system/cpupower-governor.service
+[Unit]
+Description=Set CPU Governor to $CPU_GOVERNOR
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/cpupower frequency-set -g $CPU_GOVERNOR
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    
+    systemctl daemon-reload
+    systemctl enable --now cpupower-governor.service
+    
+    # Aplica imediatamente
+    cpupower frequency-set -g $CPU_GOVERNOR
 
     echo "options kvm ignore_msrs=1 report_ignored_msrs=0" > /etc/modprobe.d/kvm.conf
     echo "options zfs zfs_arc_max=$ZFS_BYTES" > /etc/modprobe.d/zfs.conf
@@ -228,6 +241,7 @@ step_04_storage() {
         if ! cat /proc/cmdline | grep -q "nvme_core.default_ps_max_latency_us=0"; then
             echo -e "${RD}ERRO CRÍTICO DE SEGURANÇA!${CL}"
             echo -e "O parâmetro de proteção do NVMe (Step 3) NÃO está ativo no Kernel atual."
+            echo -e "Se você formatar agora, o disco WD SN850X pode travar o sistema."
             echo -e "${YW}SOLUÇÃO: Reinicie o PC e execute a Etapa 04 depois.${CL}"
             read -p "Pressione Enter para abortar..."
             return
@@ -372,6 +386,7 @@ step_08_pvescripts() {
                     if ! grep -q "$NEW_URL" "$DESKTOP_FILE"; then
                         sed -i "s|https://localhost:8007|https://localhost:8007 $NEW_URL|" "$DESKTOP_FILE"
                         echo -e "${GN}✅ URL $NEW_URL adicionada ao Quiosque!${CL}"
+                        echo "A nova aba aparecerá no próximo reinício."
                     else
                         echo "URL já existe no Kiosk."
                     fi
