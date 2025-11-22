@@ -1,23 +1,23 @@
 #!/bin/bash
 # ==============================================================================
-# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final v0.3.6)
+# MASTER SETUP SCRIPT - ALEOGR-PC (Release v1.0.0)
 # ==============================================================================
-# Automação completa para Workstation Proxmox com Passthrough, ZFS e Hardening.
-# Versionamento: SemVer 0.3.6 (Fix: U2F Logic - Removida inserção manual de :)
+# Complete automation for Proxmox Workstation with Passthrough, ZFS, and Hardening.
+# Versioning: SemVer 1.0.0 (First Stable Release - English)
 # ==============================================================================
 
-# --- VARIÁVEIS GLOBAIS (EDITE AQUI) ---
+# --- GLOBAL VARIABLES (EDIT HERE) ---
 # ------------------------------------------------------------------------------
-SCRIPT_VERSION="0.3.6"
+SCRIPT_VERSION="1.0.0"
 NEW_USER="aleogr"
 DEBIAN_CODENAME="trixie"
 
-# Seleção automática do disco baseada no ambiente (Real vs VM)
+# Automatic disk selection based on environment (Real vs VM)
 if systemd-detect-virt | grep -q "none"; then
-    # Hardware Real (WD SN850X)
+    # Real Hardware (WD SN850X)
     DISK_DEVICE="/dev/disk/by-id/nvme-WD_BLACK_SN850X_2000GB_222503A00551"
 else
-    # Ambiente Virtual (Teste)
+    # Virtual Environment (Testing)
     DISK_DEVICE="/dev/sdb"
 fi
 
@@ -25,18 +25,18 @@ POOL_NAME="tank"
 STORAGE_ID_VM="VM-Storage"
 DATASTORE_PBS="Backup-PBS"
 ZFS_ARC_GB=8
-CPU_GOVERNOR="powersave" # 'powersave' = Balanceado (Recomendado para Intel moderno)
-ENABLE_ENCRYPTION="yes"  # "yes" ou "no"
+CPU_GOVERNOR="powersave" # 'powersave' = Balanced (Recommended for modern Intel)
+ENABLE_ENCRYPTION="yes"  # "yes" or "no"
 # ------------------------------------------------------------------------------
 
-# Cores
+# Colors
 YW=$(echo "\033[33m")
 BL=$(echo "\033[36m")
 RD=$(echo "\033[01;31m")
 GN=$(echo "\033[1;92m")
 CL=$(echo "\033[m")
 
-# Função de Cabeçalho
+# Header Function (HereDoc for ASCII security)
 header() {
     clear
     echo -e "${BL}"
@@ -48,37 +48,37 @@ header() {
 EOF
     echo -e "${CL}"
     echo -e "${YW}Workstation: aleogr-pc${CL}"
-    echo -e "${YW}Versão: ${GN}v${SCRIPT_VERSION}${CL}"
+    echo -e "${YW}Version: ${GN}v${SCRIPT_VERSION}${CL}"
     echo ""
-    echo -e "${YW}HARDWARE VALIDADO (Target):${CL}"
+    echo -e "${YW}VALIDATED HARDWARE (Target):${CL}"
     echo -e " • MB:  ${GN}ASUS ROG MAXIMUS Z790 HERO${CL}"
     echo -e " • CPU: ${GN}Intel Core i9-13900K${CL}"
     echo -e " • GPU: ${GN}NVIDIA GeForce RTX 3090 Ti${CL}"
     echo -e " • RAM: ${GN}64GB DDR5${CL}"
-    echo -e " • SSD: ${GN}WD Black SN850X (Dados)${CL} + NVMe (OS)"
+    echo -e " • SSD: ${GN}WD Black SN850X (Data)${CL} + NVMe (OS)"
     echo ""
     
     if ! systemd-detect-virt | grep -q "none"; then
-        echo -e "${RD}[!] AMBIENTE VIRTUAL DETECTADO ($(systemd-detect-virt))${CL}"
-        echo -e "${RD}[!] A Etapa 03 (Hardware Tune) será bloqueada.${CL}"
+        echo -e "${RD}[!] VIRTUAL ENVIRONMENT DETECTED ($(systemd-detect-virt))${CL}"
+        echo -e "${RD}[!] Step 03 (Hardware Tune) will be locked.${CL}"
         echo ""
     fi
 }
 
-if [ "$EUID" -ne 0 ]; then echo "Por favor, rode como root"; exit 1; fi
+if [ "$EUID" -ne 0 ]; then echo "Please run as root"; exit 1; fi
 
 # ==============================================================================
-# MÓDULOS DE EXECUÇÃO
+# EXECUTION MODULES
 # ==============================================================================
 
 step_01_system() {
-    echo -e "${GN}>>> ETAPA 01: Sistema Base & Repositórios${CL}"
+    echo -e "${GN}>>> STEP 01: Base System & Repositories${CL}"
     
     mkdir -p /etc/apt/sources.list.d/backup_old
     mv /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/backup_old/ 2>/dev/null || true
     mv /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/backup_old/ 2>/dev/null || true
     
-    if [ -f /etc/apt/sources.list ]; then echo "# Movido para debian.sources" > /etc/apt/sources.list; fi
+    if [ -f /etc/apt/sources.list ]; then echo "# Moved to debian.sources" > /etc/apt/sources.list; fi
 
     cat <<EOF > /etc/apt/sources.list.d/debian.sources
 Types: deb
@@ -114,32 +114,32 @@ Components: no-subscription
 Signed-By: /usr/share/keyrings/proxmox-release-$DEBIAN_CODENAME.gpg
 EOF
 
-    echo "Atualizando sistema..."
+    echo "Updating system..."
     apt update && apt dist-upgrade -y
     
-    echo "Instalando ferramentas..."
+    echo "Installing tools..."
     apt install -y intel-microcode build-essential pve-headers vim htop btop curl git fastfetch ethtool net-tools nvtop
 
     if [ -f /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js ]; then
         sed -Ezi.bak 's/(Ext.Msg.show\(\{\s+title: gettext\('"'"'No valid subscription'"'"'\),)/void\(\{ \/\/\1/g' /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js
         systemctl restart pveproxy.service
-        echo -e "${BL}[INFO] Aviso de Assinatura Removido.${CL}"
+        echo -e "${BL}[INFO] Subscription Notice Removed.${CL}"
     fi
 
     apt autoremove -y && apt clean
-    echo -e "${GN}✅ Etapa 01 Concluída.${CL}"
-    read -p "Pressione Enter para voltar ao menu..."
+    echo -e "${GN}✅ Step 01 Completed.${CL}"
+    read -p "Press Enter to return to the menu..."
 }
 
 step_02_gui() {
-    echo -e "${GN}>>> ETAPA 02: Desktop GUI (Kiosk)${CL}"
-    echo "Defina a senha para o usuário Linux ($NEW_USER):"
+    echo -e "${GN}>>> STEP 02: Desktop GUI (Kiosk)${CL}"
+    echo "Set password for Linux user ($NEW_USER):"
     read -s PASSWORD
-    echo "Confirme:"
+    echo "Confirm:"
     read -s PASSWORD_CONFIRM
     
     if [ "$PASSWORD" != "$PASSWORD_CONFIRM" ]; then 
-        echo -e "${RD}Senhas não conferem!${CL}"
+        echo -e "${RD}Passwords do not match!${CL}"
         read -p "Enter..."
         return
     fi
@@ -174,16 +174,16 @@ EOF
         systemctl start lightdm
     fi
     
-    echo -e "${GN}✅ Etapa 02 Concluída.${CL}"
-    read -p "Pressione Enter para voltar ao menu..."
+    echo -e "${GN}✅ Step 02 Completed.${CL}"
+    read -p "Press Enter to return to the menu..."
 }
 
 step_03_hardware() {
     if ! systemd-detect-virt | grep -q "none"; then
-        echo -e "${RD}ERRO: Bloqueado em VM.${CL}"; read -p "Enter..."; return
+        echo -e "${RD}ERROR: Locked in VM.${CL}"; read -p "Enter..."; return
     fi
 
-    echo -e "${GN}>>> ETAPA 03: Hardware Tune (i9 + GPU)${CL}"
+    echo -e "${GN}>>> STEP 03: Hardware Tune (i9 + GPU)${CL}"
     ZFS_BYTES=$(($ZFS_ARC_GB * 1024 * 1024 * 1024))
     cp /etc/kernel/cmdline /etc/kernel/cmdline.bak
     
@@ -191,7 +191,7 @@ step_03_hardware() {
     echo "root=ZFS=rpool/ROOT/pve-1 boot=zfs $CMDLINE" > /etc/kernel/cmdline
     proxmox-boot-tool refresh
 
-    echo "Configurando CPU Governor ($CPU_GOVERNOR)..."
+    echo "Configuring CPU Governor ($CPU_GOVERNOR)..."
     apt install -y linux-cpupower
     
     cat <<EOF > /etc/systemd/system/cpupower-governor.service
@@ -218,7 +218,7 @@ EOF
     GPU_IDS=$(lspci -nn | grep -i nvidia | grep -oP '\[\K[0-9a-f]{4}:[0-9a-f]{4}(?=\])' | tr '\n' ',' | sed 's/,$//')
 
     if [ -n "$GPU_IDS" ]; then
-        echo "GPU Detectada: $GPU_IDS"
+        echo "GPU Detected: $GPU_IDS"
         echo "options vfio-pci ids=$GPU_IDS disable_vga=1" > /etc/modprobe.d/vfio.conf
         echo "vfio" > /etc/modules
         echo "vfio_iommu_type1" >> /etc/modules
@@ -231,52 +231,53 @@ blacklist nvidia_drm
 blacklist nvidia_modeset
 EOF
     else
-        echo "${YW}[AVISO] GPU Nvidia não encontrada.${CL}"
+        echo "${YW}[WARNING] Nvidia GPU not found.${CL}"
     fi
 
     update-initramfs -u -k all
-    echo -e "${GN}✅ Etapa 03 Concluída. REBOOT NECESSÁRIO!${CL}"
-    read -p "Pressione Enter para voltar ao menu..."
+    echo -e "${GN}✅ Step 03 Completed. REBOOT REQUIRED!${CL}"
+    read -p "Press Enter to return to the menu..."
 }
 
 step_04_storage() {
-    echo -e "${GN}>>> ETAPA 04: Storage ZFS ($DISK_DEVICE)${CL}"
+    echo -e "${GN}>>> STEP 04: Storage ZFS ($DISK_DEVICE)${CL}"
     
     if systemd-detect-virt | grep -q "none"; then
         if ! cat /proc/cmdline | grep -q "nvme_core.default_ps_max_latency_us=0"; then
-            echo -e "${RD}ERRO CRÍTICO DE SEGURANÇA!${CL}"
-            echo -e "O parâmetro de proteção do NVMe (Step 3) NÃO está ativo no Kernel atual."
-            echo -e "Se você formatar agora, o disco WD SN850X pode travar o sistema."
-            echo -e "${YW}SOLUÇÃO: Reinicie o PC e execute a Etapa 04 depois.${CL}"
-            read -p "Pressione Enter para abortar..."
+            echo -e "${RD}CRITICAL SECURITY ERROR!${CL}"
+            echo -e "NVMe protection parameter (Step 3) is NOT active in current Kernel."
+            echo -e "If you format now, the WD SN850X disk may freeze the system."
+            echo -e "${YW}SOLUTION: Reboot PC and run Step 04 afterwards.${CL}"
+            read -p "Press Enter to abort..."
             return
         fi
     fi
 
     if zpool list -o name -H | grep -q "^$POOL_NAME$"; then
-        echo -e "${RD}ERRO: Pool '$POOL_NAME' já existe! Abortando.${CL}"; read -p "Enter..."; return
+        echo -e "${RD}ERROR: Pool '$POOL_NAME' already exists! Aborting.${CL}"; read -p "Enter..."; return
     fi
 
-    if [ ! -b "$DISK_DEVICE" ]; then echo "${RD}Erro: Disco $DISK_DEVICE não encontrado!${CL}"; read -p "Enter..."; return; fi
+    if [ ! -b "$DISK_DEVICE" ]; then echo "${RD}Error: Disk $DISK_DEVICE not found!${CL}"; read -p "Enter..."; return; fi
     
-    echo -e "${RD}!!! CUIDADO: ISSO VAI FORMATAR O DISCO: $DISK_DEVICE !!!${CL}"
-    echo "Digite 'CONFIRMAR' para continuar:"
+    echo -e "${RD}!!! WARNING: THIS WILL FORMAT DISK: $DISK_DEVICE !!!${CL}"
+    echo -e "All data on this device will be lost."
+    echo "Type 'CONFIRM' to continue:"
     read -r INPUT
-    if [ "$INPUT" != "CONFIRMAR" ]; then return; fi
+    if [ "$INPUT" != "CONFIRM" ]; then return; fi
 
     sgdisk --zap-all "$DISK_DEVICE" > /dev/null
     wipefs -a "$DISK_DEVICE" > /dev/null
 
     ZPOOL_ARGS="-f -o ashift=12 -o autotrim=on -O compression=lz4 -O atime=off -O acltype=posixacl -O xattr=sa"
     if [ "$ENABLE_ENCRYPTION" == "yes" ]; then
-        echo -e "${YW}Defina a SENHA DO ZFS (PIN + YubiKey):${CL}"
+        echo -e "${YW}Set ZFS PASSWORD (PIN + YubiKey):${CL}"
         ZPOOL_ARGS="$ZPOOL_ARGS -O encryption=aes-256-gcm -O keyformat=passphrase -O keylocation=prompt"
     fi
 
     if zpool create $ZPOOL_ARGS "$POOL_NAME" "$DISK_DEVICE"; then
-        echo "[OK] Pool criado."
+        echo "[OK] Pool created."
     else
-        echo "${RD}Falha ao criar Pool.${CL}"; read -p "Enter..."; return
+        echo "${RD}Failed to create Pool.${CL}"; read -p "Enter..."; return
     fi
 
     zfs create "$POOL_NAME/vms"
@@ -286,26 +287,26 @@ step_04_storage() {
         pvesm add zfspool "$STORAGE_ID_VM" --pool "$POOL_NAME/vms" --content images,rootdir --sparse 1
     fi
 
-    echo "Atualizando cache de boot..."
+    echo "Updating boot cache..."
     update-initramfs -u
-    echo -e "${GN}✅ Etapa 04 Concluída.${CL}"
-    read -p "Pressione Enter para voltar ao menu..."
+    echo -e "${GN}✅ Step 04 Completed.${CL}"
+    read -p "Press Enter to return to the menu..."
 }
 
 step_05_memory() {
-    echo -e "${GN}>>> ETAPA 05: Ajuste de Memória e Criação de Swap ZFS${CL}"
+    echo -e "${GN}>>> STEP 05: Memory Tuning & ZFS Swap Creation${CL}"
     
     CONFIG_FILE="/etc/sysctl.d/99-pve-swappiness.conf"
-    echo "# Configuração customizada para Proxmox ZFS" > "$CONFIG_FILE"
+    echo "# Custom configuration for Proxmox ZFS" > "$CONFIG_FILE"
     echo "vm.swappiness=10" >> "$CONFIG_FILE"
     sysctl --system > /dev/null
-    echo "Swappiness definido para 10."
+    echo "Swappiness set to 10."
 
     if [ $(swapon --show --noheadings | wc -l) -eq 0 ]; then
-        echo "Nenhuma Swap ativa. Verificando volume ZFS..."
+        echo "No active Swap. Checking ZFS volume..."
         
         if ! zfs list rpool/swap >/dev/null 2>&1; then
-            echo "Criando volume rpool/swap (8GB)..."
+            echo "Creating rpool/swap volume (8GB)..."
             zfs create -V 8G -b $(getconf PAGESIZE) \
                 -o compression=zle \
                 -o logbias=throughput \
@@ -317,10 +318,10 @@ step_05_memory() {
             udevadm settle
             sleep 1
         else
-            echo "Aviso: Volume 'rpool/swap' já existe. Pulando criação."
+            echo "Warning: Volume 'rpool/swap' already exists. Skipping creation."
         fi
         
-        echo "Ativando Swap..."
+        echo "Activating Swap..."
         mkswap -f /dev/zvol/rpool/swap
         swapon /dev/zvol/rpool/swap
         
@@ -328,18 +329,18 @@ step_05_memory() {
             echo "/dev/zvol/rpool/swap none swap defaults 0 0" >> /etc/fstab
         fi
         
-        echo -e "${GN}Swap ZFS de 8GB ativada!${CL}"
+        echo -e "${GN}8GB ZFS Swap activated!${CL}"
     else
         CURRENT_SWAP=$(free -h | grep Swap | awk '{print $2}')
-        echo -e "${YW}Swap já está ativa ($CURRENT_SWAP).${CL}"
+        echo -e "${YW}Swap is already active ($CURRENT_SWAP).${CL}"
     fi
 
-    echo -e "${GN}✅ Etapa 05 Concluída.${CL}"
+    echo -e "${GN}✅ Step 05 Completed.${CL}"
     sleep 1
 }
 
 step_06_pbs() {
-    echo -e "${GN}>>> ETAPA 06: Instalação PBS Local${CL}"
+    echo -e "${GN}>>> STEP 06: Local PBS Installation${CL}"
     apt install -y proxmox-backup-server proxmox-backup-client
     
     ZFS_PATH="/$POOL_NAME/backups"
@@ -347,7 +348,7 @@ step_06_pbs() {
         chown -R backup:backup $ZFS_PATH
         chmod 700 $ZFS_PATH
     else
-        echo "${RD}Aviso: Pasta $ZFS_PATH não encontrada.${CL}"; read -p "Enter..."; return
+        echo "${RD}Warning: Directory $ZFS_PATH not found.${CL}"; read -p "Enter..."; return
     fi
 
     if ! proxmox-backup-manager datastore list | grep -q "$DATASTORE_PBS"; then
@@ -356,7 +357,7 @@ step_06_pbs() {
 
     FINGERPRINT=$(proxmox-backup-manager cert info | grep "Fingerprint" | awk '{print $NF}')
     
-    echo "Digite a senha do ROOT do Linux para conectar o PVE ao PBS:"
+    echo "Enter Linux ROOT password to connect PVE to PBS:"
     read -s PBS_PASSWORD
 
     if ! pvesm status | grep -q "$DATASTORE_PBS"; then
@@ -368,12 +369,12 @@ step_06_pbs() {
             --password "$PBS_PASSWORD" \
             --content backup
     fi
-    echo -e "${GN}✅ Etapa 06 Concluída.${CL}"
-    read -p "Pressione Enter para voltar ao menu..."
+    echo -e "${GN}✅ Step 06 Completed.${CL}"
+    read -p "Press Enter to return to the menu..."
 }
 
 step_07_boot_unlock() {
-    echo -e "${GN}>>> ETAPA 07: Serviço de Desbloqueio no Boot${CL}"
+    echo -e "${GN}>>> STEP 07: Boot Unlock Service${CL}"
     SERVICE_FILE="/etc/systemd/system/zfs-load-key.service"
     cat <<EOF > "$SERVICE_FILE"
 [Unit]
@@ -394,28 +395,28 @@ WantedBy=zfs-mount.service
 EOF
     systemctl daemon-reload
     systemctl enable zfs-load-key
-    echo -e "${GN}✅ Etapa 07 Concluída.${CL}"
-    read -p "Pressione Enter para voltar ao menu..."
+    echo -e "${GN}✅ Step 07 Completed.${CL}"
+    read -p "Press Enter to return to the menu..."
 }
 
 step_08_pvescripts() {
-    echo -e "${GN}>>> ETAPA 08: PVEScriptsLocal (Gerenciador de Scripts)${CL}"
-    echo -e "Isso irá baixar e executar o instalador oficial do PVEScriptsLocal LXC."
-    echo -e "Fonte: https://github.com/community-scripts/ProxmoxVE"
+    echo -e "${GN}>>> STEP 08: PVEScriptsLocal (Script Manager)${CL}"
+    echo -e "This will download and execute the official installer for PVEScriptsLocal LXC."
+    echo -e "Source: https://github.com/community-scripts/ProxmoxVE"
     echo ""
     
     if [ ! -f /etc/timezone ]; then
-        echo "Criando arquivo /etc/timezone para compatibilidade..."
+        echo "Creating /etc/timezone file for compatibility..."
         timedatectl show --property=Timezone --value > /etc/timezone
     fi
 
-    echo "Deseja prosseguir? (s/n)"
+    echo "Do you want to proceed? (y/n)"
     read -r CONFIRM
-    if [[ "$CONFIRM" =~ ^[Ss]$ ]]; then
+    if [[ "$CONFIRM" =~ ^[Yy]$ ]]; then
         bash -c "$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/ct/pve-scripts-local.sh)"
-        echo -e "${GN}✅ Instalação finalizada.${CL}"
+        echo -e "${GN}✅ Installation finished.${CL}"
         
-        echo "Configurando Kiosk para abrir o novo painel..."
+        echo "Configuring Kiosk to open new dashboard..."
         CTID=$(pct list | grep "pve-scripts-local" | awk '{print $1}')
         
         if [ -n "$CTID" ]; then
@@ -426,153 +427,152 @@ step_08_pvescripts() {
                 if [ -f "$DESKTOP_FILE" ]; then
                     if ! grep -q "$NEW_URL" "$DESKTOP_FILE"; then
                         sed -i "s|https://localhost:8007|https://localhost:8007 $NEW_URL|" "$DESKTOP_FILE"
-                        echo -e "${GN}✅ URL $NEW_URL adicionada ao Quiosque!${CL}"
+                        echo -e "${GN}✅ URL $NEW_URL added to Kiosk!${CL}"
                     else
-                        echo "URL já existe no Kiosk."
+                        echo "URL already exists in Kiosk."
                     fi
                 else
-                    echo "${RD}Arquivo Kiosk não encontrado. Rode Etapa 02.${CL}"
+                    echo "${RD}Kiosk file not found. Run Step 02.${CL}"
                 fi
             fi
         fi
     else
-        echo "Cancelado."
+        echo "Cancelled."
     fi
-    read -p "Pressione Enter para voltar ao menu..."
+    read -p "Press Enter to return to the menu..."
 }
 
 step_09_multiarch() {
-    echo -e "${GN}>>> ETAPA 09: Suporte a Multi-Arquitetura (LXC Only)${CL}"
-    echo -e "${YW}Aviso: Instalar emuladores completos (VMs) pode causar conflitos.${CL}"
-    echo -e "Instalaremos apenas o suporte seguro para Containers (binfmt + qemu-static)."
+    echo -e "${GN}>>> STEP 09: Multi-Arch Support (LXC Only)${CL}"
+    echo -e "${YW}Warning: Installing full emulators (VMs) may cause conflicts.${CL}"
+    echo -e "Installing only safe support for Containers (binfmt + qemu-static)."
     
     apt install -y qemu-user-static binfmt-support
 
-    echo -e "${GN}✅ Suporte Multi-Arch para Containers instalado!${CL}"
-    echo -e "${YW}O que você PODE fazer:${CL}"
-    echo " - Rodar Containers LXC de arquitetura ARM64 ou RISC-V."
-    echo -e "${RD}O que você NÃO PODE fazer:${CL}"
-    echo " - Criar VMs completas de outras arquiteturas via Proxmox (para proteger o host)."
-    read -p "Pressione Enter para voltar ao menu..."
+    echo -e "${GN}✅ Multi-Arch support for Containers installed!${CL}"
+    echo -e "${YW}What you CAN do:${CL}"
+    echo " - Run ARM64 or RISC-V LXC Containers."
+    echo -e "${RD}What you CANNOT do:${CL}"
+    echo " - Create full VMs of other architectures via Proxmox (to protect the host)."
+    read -p "Press Enter to return to the menu..."
 }
 
 step_10_hardening() {
-    echo -e "${GN}>>> ETAPA 10: Security Hardening (PAM/U2F/Sudo)${CL}"
-    echo -e "${YW}Esta etapa configura 2FA (YubiKey) para Login e Sudo.${CL}"
-    echo -e "Você precisará ter suas YubiKeys em mãos agora."
+    echo -e "${GN}>>> STEP 10: Security Hardening (PAM/U2F/Sudo)${CL}"
+    echo -e "${YW}This step configures 2FA (YubiKey) for Login and Sudo.${CL}"
+    echo -e "You will need your YubiKeys handy now."
     echo ""
-    echo "Deseja iniciar o Hardening? (s/n)"
+    echo "Start Hardening? (y/n)"
     read -r CONFIRM
-    if [[ ! "$CONFIRM" =~ ^[Ss]$ ]]; then return; fi
+    if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then return; fi
 
-    echo "Instalando pacotes de segurança..."
+    echo "Installing security packages..."
     apt install -y sudo libpam-u2f libpam-pwquality
 
-    echo "Configurando permissões do usuário $NEW_USER..."
+    echo "Configuring permissions for user $NEW_USER..."
     if [ ! -f "/etc/sudoers.d/$NEW_USER" ]; then
         echo "$NEW_USER ALL=(ALL) ALL" > "/etc/sudoers.d/$NEW_USER"
         chmod 0440 "/etc/sudoers.d/$NEW_USER"
-        echo "[OK] Sudoers configurado."
+        echo "[OK] Sudoers configured."
     fi
 
-    echo "Configurando PAM (Idempotente)..."
+    echo "Configuring PAM (Idempotent)..."
     if ! grep -q "pam_u2f.so" /etc/pam.d/common-auth; then
         sed -i '1i auth sufficient pam_u2f.so cue nouserok authfile=/etc/Yubico/u2f_mappings' /etc/pam.d/common-auth
-        echo "[OK] PAM Auth atualizado."
+        echo "[OK] PAM Auth updated."
     fi
 
     if ! grep -q "pam_pwquality.so" /etc/pam.d/common-password; then
         sed -i '1i password requisite pam_pwquality.so retry=3 minlen=12 difok=4 ucredit=-1 lcredit=-1 dcredit=-1 ocredit=-1 enforce_for_root' /etc/pam.d/common-password
-        echo "[OK] PAM Password Quality atualizado."
+        echo "[OK] PAM Password Quality updated."
     fi
 
-    echo -e "${GN}>>> CADASTRO DE CHAVES YUBIKEY${CL}"
+    echo -e "${GN}>>> YUBIKEY REGISTRATION${CL}"
     mkdir -p /etc/Yubico
     MAPPING_FILE="/etc/Yubico/u2f_mappings"
-    
-    # Garante que a variável KEYS esteja vazia e contenha apenas o usuário inicialmente
-    # MAS ESPERE! O comando 'pamu2fcfg -n' RETORNA OS DOIS PONTOS NO INICIO (:keyhandle...)
-    # Então, a estratégia correta é simplesmente concatenar tudo e limpar no final.
-    
+    KEYS_TEMP_FILE=$(mktemp)
+
     if grep -q "^$NEW_USER" "$MAPPING_FILE" 2>/dev/null; then
-        echo -e "${YW}Aviso: Já existem chaves cadastradas para $NEW_USER.${CL}"
-        echo "Deseja sobrescrever/adicionar novas? (s/n)"
+        echo -e "${YW}Warning: Keys already registered for $NEW_USER.${CL}"
+        echo "Overwrite/Add new? (y/n)"
         read -r OVR
-        if [[ ! "$OVR" =~ ^[Ss]$ ]]; then 
-            echo "Pressione Enter para voltar ao menu..."
+        if [[ ! "$OVR" =~ ^[Yy]$ ]]; then 
+            rm "$KEYS_TEMP_FILE"
+            echo "Press Enter to return to the menu..."
             read
             return 
         fi
     fi
 
-    # FIX 3.7: String acumulativa simples
-    FINAL_STRING="$NEW_USER" 
     COUNT=1
     while true; do
-        echo -e "${BL}--- Cadastrando Chave #$COUNT ---${CL}"
-        echo "Insira a YubiKey e pressione ENTER."
+        echo -e "${BL}--- Registering Key #$COUNT ---${CL}"
+        echo "Insert YubiKey and press ENTER."
         read
-        echo "Toque no botão da YubiKey agora (quando piscar)..."
+        echo "Touch the YubiKey button now (when flashing)..."
         
-        # Captura a saída bruta (que já vem com dois pontos no começo: ':dados...')
         KEY_DATA=$(pamu2fcfg -n)
-        
-        # Limpa quebras de linha
-        KEY_DATA_CLEAN=$(echo -n "$KEY_DATA" | tr -d '\n\r')
+        KEY_DATA_CLEAN=$(echo -n "$KEY_DATA" | tr -d '\n\r[:space:]')
         
         if [ -n "$KEY_DATA_CLEAN" ]; then
-            FINAL_STRING="${FINAL_STRING}${KEY_DATA_CLEAN}"
-            echo -e "${GN}Chave capturada!${CL}"
+            printf "%s\n" "$KEY_DATA_CLEAN" >> "$KEYS_TEMP_FILE"
+            echo -e "${GN}Key captured!${CL}"
         else
-            echo -e "${RD}Falha ao capturar chave. Tente novamente.${CL}"
+            echo -e "${RD}Failed to capture key. Try again.${CL}"
         fi
 
-        echo "Remova a YubiKey e pressione ENTER."
+        echo "Remove YubiKey and press ENTER."
         read
         
-        echo "Deseja adicionar outra chave (Backup)? (s/n)"
+        echo "Add another key (Backup)? (y/n)"
         read -r MORE
-        if [[ ! "$MORE" =~ ^[Ss]$ ]]; then break; fi
+        if [[ ! "$MORE" =~ ^[Yy]$ ]]; then break; fi
         COUNT=$((COUNT+1))
     done
 
-    if [ "$FINAL_STRING" != "$NEW_USER" ]; then
+    if [ -s "$KEYS_TEMP_FILE" ]; then
         touch "$MAPPING_FILE"
         grep -v "^$NEW_USER" "$MAPPING_FILE" > "${MAPPING_FILE}.tmp"
-        echo "$FINAL_STRING" >> "${MAPPING_FILE}.tmp"
+        
+        # Raw Append using paste
+        JOINED_KEYS=$(grep -v '^$' "$KEYS_TEMP_FILE" | paste -sd "" -)
+        
+        echo "${NEW_USER}${JOINED_KEYS}" >> "${MAPPING_FILE}.tmp"
         mv "${MAPPING_FILE}.tmp" "$MAPPING_FILE"
-        echo -e "${GN}✅ Chaves salvas com sucesso em $MAPPING_FILE${CL}"
+        
+        echo -e "${GN}✅ Keys successfully saved to $MAPPING_FILE${CL}"
     else
-        echo "${YW}Nenhuma chave foi cadastrada.${CL}"
+        echo "${YW}No keys were registered.${CL}"
     fi
-
-    read -p "Pressione Enter para voltar ao menu..."
+    
+    rm "$KEYS_TEMP_FILE"
+    read -p "Press Enter to return to the menu..."
 }
 
 while true; do
     header
-    echo -e "${YW}FASE 1: SISTEMA & HARDWARE (Requer Reboot ao final)${CL}"
-    echo " 1) [Sistema]    Base, Repositórios e Microcode"
-    echo " 2) [Desktop]    GUI XFCE e Kiosk Mode"
+    echo -e "${YW}PHASE 1: SYSTEM & HARDWARE (Reboot required at end)${CL}"
+    echo " 1) [System]    Base, Repositories & Microcode"
+    echo " 2) [Desktop]   GUI XFCE & Kiosk Mode"
     if systemd-detect-virt | grep -q "none"; then
-        echo " 3) [Hardware]   Kernel, IOMMU, GPU e ZFS RAM"
+        echo " 3) [Hardware]  Kernel, IOMMU, GPU & ZFS RAM"
     else
-        echo -e "${RD} 3) [Hardware]   (Bloqueado em VM)${CL}"
+        echo -e "${RD} 3) [Hardware]  (Locked in VM)${CL}"
     fi
     echo ""
-    echo -e "${YW}FASE 2: DADOS & SERVIÇOS (Executar após Reboot)${CL}"
-    echo " 4) [Storage]    Formatar Disco de Dados, ZFS e Criptografia"
-    echo " 5) [Memory]     Ajuste de Swap e Swappiness"
-    echo " 6) [Backup]     Instalar PBS Local"
-    echo " 7) [Unlock]     Configurar Boot Unlock (YubiKey)"
-    echo " 8) [Extras]     Criar Container PVEScriptsLocal"
-    echo " 9) [Emulation]  Suporte Multi-Arquitetura (LXC Only)"
-    echo "10) [Hardening]  PAM U2F, Sudo e Senhas Fortes"
+    echo -e "${YW}PHASE 2: DATA & SERVICES (Execute after Reboot)${CL}"
+    echo " 4) [Storage]   Format Data Disk, ZFS & Encryption"
+    echo " 5) [Memory]    Swap Tuning & Swappiness"
+    echo " 6) [Backup]    Install Local PBS"
+    echo " 7) [Unlock]    Configure Boot Unlock (YubiKey)"
+    echo " 8) [Extras]    Create PVEScriptsLocal Container"
+    echo " 9) [Emulation] Multi-Arch Support (LXC Only)"
+    echo "10) [Hardening] PAM U2F, Sudo & Strong Passwords"
     echo "------------------------------------------------"
-    echo " R) REINICIAR O SISTEMA"
-    echo " 0) Sair"
+    echo " R) REBOOT SYSTEM"
+    echo " 0) Exit"
     echo ""
-    read -p "Opção: " OPTION
+    read -p "Option: " OPTION
 
     case $OPTION in
         1) step_01_system ;;
@@ -587,6 +587,6 @@ while true; do
         10) step_10_hardening ;;
         r|R) reboot ;;
         0) exit 0 ;;
-        *) echo "Opção inválida." ; sleep 1 ;;
+        *) echo "Invalid option." ; sleep 1 ;;
     esac
 done
