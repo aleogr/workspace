@@ -1,14 +1,14 @@
 #!/bin/bash
 # ==============================================================================
-# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final v0.2.2)
+# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final Gold v3.0)
 # ==============================================================================
-# Automação completa para Workstation Proxmox com Passthrough, ZFS e Multi-Arch.
-# Versionamento: SemVer 0.2.2 (Hotfix: Step 09 Safe Mode - LXC Only)
+# Automação completa para Workstation Proxmox com Passthrough e ZFS.
+# Versionamento: SemVer 0.2.4 (Fix: Idempotência real na criação de Swap)
 # ==============================================================================
 
 # --- VARIÁVEIS GLOBAIS (EDITE AQUI) ---
 # ------------------------------------------------------------------------------
-SCRIPT_VERSION="0.2.2"
+SCRIPT_VERSION="0.2.4"
 NEW_USER="aleogr"
 DEBIAN_CODENAME="trixie"
 
@@ -36,7 +36,7 @@ RD=$(echo "\033[01;31m")
 GN=$(echo "\033[1;92m")
 CL=$(echo "\033[m")
 
-# Função de Cabeçalho
+# Função de Cabeçalho (HereDoc para segurança ASCII)
 header() {
     clear
     echo -e "${BL}"
@@ -206,7 +206,6 @@ EOF
     
     systemctl daemon-reload
     systemctl enable --now cpupower-governor.service
-    
     cpupower frequency-set -g $CPU_GOVERNOR
 
     echo "options kvm ignore_msrs=1 report_ignored_msrs=0" > /etc/modprobe.d/kvm.conf
@@ -299,18 +298,31 @@ step_05_memory() {
     sysctl --system > /dev/null
     echo "Swappiness definido para 10."
 
+    # 1. Verificação Externa: Swap está ativa no OS?
     if [ $(swapon --show --noheadings | wc -l) -eq 0 ]; then
-        echo "Criando Swap de 8GB no rpool..."
+        echo "Nenhuma Swap ativa. Verificando volume ZFS..."
         
-        zfs create -V 8G -b $(getconf PAGESIZE) \
-            -o compression=zle \
-            -o logbias=throughput \
-            -o sync=always \
-            -o primarycache=metadata \
-            -o secondarycache=none \
-            -o com.sun:auto-snapshot=false \
-            rpool/swap
+        # 2. Verificação Interna: O disco ZFS já existe? (AQUI ESTA A CORREÇÃO DA IDEMPOTÊNCIA)
+        if ! zfs list rpool/swap >/dev/null 2>&1; then
+            echo "Criando volume rpool/swap (8GB)..."
+            zfs create -V 8G -b $(getconf PAGESIZE) \
+                -o compression=zle \
+                -o logbias=throughput \
+                -o sync=always \
+                -o primarycache=metadata \
+                -o secondarycache=none \
+                -o com.sun:auto-snapshot=false \
+                rpool/swap
+            
+            # Espera o dispositivo aparecer no /dev
+            udevadm settle
+            sleep 1
+        else
+            echo "Aviso: Volume 'rpool/swap' já existe. Pulando criação."
+        fi
         
+        # Formatar e Ativar (Seguro rodar múltiplas vezes)
+        echo "Ativando Swap..."
         mkswap -f /dev/zvol/rpool/swap
         swapon /dev/zvol/rpool/swap
         
@@ -318,10 +330,10 @@ step_05_memory() {
             echo "/dev/zvol/rpool/swap none swap defaults 0 0" >> /etc/fstab
         fi
         
-        echo -e "${GN}Swap ZFS de 8GB criada e ativada!${CL}"
+        echo -e "${GN}Swap ZFS de 8GB ativada!${CL}"
     else
         CURRENT_SWAP=$(free -h | grep Swap | awk '{print $2}')
-        echo -e "${YW}Swap já existe ($CURRENT_SWAP). Pulando criação.${CL}"
+        echo -e "${YW}Swap já está ativa e funcional ($CURRENT_SWAP).${CL}"
     fi
 
     echo -e "${GN}✅ Etapa 05 Concluída.${CL}"
@@ -433,10 +445,9 @@ step_08_pvescripts() {
 
 step_09_multiarch() {
     echo -e "${GN}>>> ETAPA 09: Suporte a Multi-Arquitetura (LXC Only)${CL}"
-    echo -e "${YW}Aviso: Instalar emuladores completos (VMs) pode causar conflitos com Proxmox.${CL}"
+    echo -e "${YW}Aviso: Instalar emuladores completos (VMs) pode causar conflitos.${CL}"
     echo -e "Instalaremos apenas o suporte seguro para Containers (binfmt + qemu-static)."
     
-    # Instalamos APENAS suporte para Containers (LXC) para não quebrar o pve-qemu-kvm
     apt install -y qemu-user-static binfmt-support
 
     echo -e "${GN}✅ Suporte Multi-Arch para Containers instalado!${CL}"
