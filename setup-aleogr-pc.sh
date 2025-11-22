@@ -1,14 +1,14 @@
 #!/bin/bash
 # ==============================================================================
-# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final Gold v3.0)
+# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final v0.3.1)
 # ==============================================================================
-# Automação completa para Workstation Proxmox com Passthrough e ZFS.
-# Versionamento: SemVer 0.2.4 (Fix: Idempotência real na criação de Swap)
+# Automação completa para Workstation Proxmox com Passthrough, ZFS e Hardening.
+# Versionamento: SemVer 0.3.1 (UI Patch: Alinhamento do Menu)
 # ==============================================================================
 
 # --- VARIÁVEIS GLOBAIS (EDITE AQUI) ---
 # ------------------------------------------------------------------------------
-SCRIPT_VERSION="0.2.4"
+SCRIPT_VERSION="0.3.1"
 NEW_USER="aleogr"
 DEBIAN_CODENAME="trixie"
 
@@ -36,7 +36,7 @@ RD=$(echo "\033[01;31m")
 GN=$(echo "\033[1;92m")
 CL=$(echo "\033[m")
 
-# Função de Cabeçalho (HereDoc para segurança ASCII)
+# Função de Cabeçalho
 header() {
     clear
     echo -e "${BL}"
@@ -170,8 +170,11 @@ EOF
     
     systemctl enable lightdm
     
+    if ! systemctl is-active --quiet lightdm; then
+        systemctl start lightdm
+    fi
+    
     echo -e "${GN}✅ Etapa 02 Concluída.${CL}"
-    echo -e "${YW}Nota: A interface gráfica iniciará no próximo Reboot.${CL}"
     read -p "Pressione Enter para voltar ao menu..."
 }
 
@@ -331,7 +334,7 @@ step_05_memory() {
         echo -e "${GN}Swap ZFS de 8GB ativada!${CL}"
     else
         CURRENT_SWAP=$(free -h | grep Swap | awk '{print $2}')
-        echo -e "${YW}Swap já está ativa e funcional ($CURRENT_SWAP).${CL}"
+        echo -e "${YW}Swap já está ativa ($CURRENT_SWAP).${CL}"
     fi
 
     echo -e "${GN}✅ Etapa 05 Concluída.${CL}"
@@ -456,27 +459,121 @@ step_09_multiarch() {
     read -p "Pressione Enter para voltar ao menu..."
 }
 
+step_10_hardening() {
+    echo -e "${GN}>>> ETAPA 10: Security Hardening (PAM/U2F/Sudo)${CL}"
+    echo -e "${YW}Esta etapa configura 2FA (YubiKey) para Login e Sudo.${CL}"
+    echo -e "Você precisará ter suas YubiKeys em mãos agora."
+    echo ""
+    echo "Deseja iniciar o Hardening? (s/n)"
+    read -r CONFIRM
+    if [[ ! "$CONFIRM" =~ ^[Ss]$ ]]; then return; fi
+
+    echo "Instalando pacotes de segurança..."
+    apt install -y sudo libpam-u2f libpam-pwquality
+
+    echo "Configurando permissões do usuário $NEW_USER..."
+    if [ ! -f "/etc/sudoers.d/$NEW_USER" ]; then
+        echo "$NEW_USER ALL=(ALL) ALL" > "/etc/sudoers.d/$NEW_USER"
+        chmod 0440 "/etc/sudoers.d/$NEW_USER"
+        echo "[OK] Sudoers configurado."
+    fi
+
+    echo "Configurando PAM (Idempotente)..."
+    # Adiciona configuração de U2F se não existir
+    if ! grep -q "pam_u2f.so" /etc/pam.d/common-auth; then
+        # nouserok = Permite login se o usuário não tiver chave cadastrada (Safety net)
+        sed -i '1i auth sufficient pam_u2f.so cue nouserok authfile=/etc/Yubico/u2f_mappings' /etc/pam.d/common-auth
+        echo "[OK] PAM Auth atualizado."
+    fi
+
+    # Adiciona regras de senha forte se não existir
+    if ! grep -q "pam_pwquality.so" /etc/pam.d/common-password; then
+        sed -i '1i password requisite pam_pwquality.so retry=3 minlen=12 difok=4 ucredit=-1 lcredit=-1 dcredit=-1 ocredit=-1 enforce_for_root' /etc/pam.d/common-password
+        echo "[OK] PAM Password Quality atualizado."
+    fi
+
+    echo -e "${GN}>>> CADASTRO DE CHAVES YUBIKEY${CL}"
+    mkdir -p /etc/Yubico
+    MAPPING_FILE="/etc/Yubico/u2f_mappings"
+    
+    if grep -q "^$NEW_USER" "$MAPPING_FILE" 2>/dev/null; then
+        echo -e "${YW}Aviso: Já existem chaves cadastradas para $NEW_USER.${CL}"
+        echo "Deseja sobrescrever/adicionar novas? (s/n)"
+        read -r OVR
+        if [[ ! "$OVR" =~ ^[Ss]$ ]]; then 
+            echo "Pressione Enter para voltar ao menu..."
+            read
+            return 
+        fi
+    fi
+
+    KEYS=""
+    COUNT=1
+    while true; do
+        echo -e "${BL}--- Cadastrando Chave #$COUNT ---${CL}"
+        echo "Insira a YubiKey e pressione ENTER."
+        read
+        echo "Toque no botão da YubiKey agora (quando piscar)..."
+        
+        KEY_DATA=$(pamu2fcfg -n)
+        
+        if [ -n "$KEY_DATA" ]; then
+            KEYS="${KEYS}:${KEY_DATA}"
+            echo -e "${GN}Chave capturada!${CL}"
+        else
+            echo -e "${RD}Falha ao capturar chave. Tente novamente.${CL}"
+        fi
+
+        echo "Remova a YubiKey e pressione ENTER."
+        read
+        
+        echo "Deseja adicionar outra chave (Backup)? (s/n)"
+        read -r MORE
+        if [[ ! "$MORE" =~ ^[Ss]$ ]]; then break; fi
+        COUNT=$((COUNT+1))
+    done
+
+    if [ -n "$KEYS" ]; then
+        touch "$MAPPING_FILE"
+        grep -v "^$NEW_USER" "$MAPPING_FILE" > "${MAPPING_FILE}.tmp"
+        echo "${NEW_USER}${KEYS}" >> "${MAPPING_FILE}.tmp"
+        mv "${MAPPING_FILE}.tmp" "$MAPPING_FILE"
+        echo -e "${GN}✅ Chaves salvas com sucesso em $MAPPING_FILE${CL}"
+    else
+        echo "${YW}Nenhuma chave foi cadastrada.${CL}"
+    fi
+
+    read -p "Pressione Enter para voltar ao menu..."
+}
+
+# ==============================================================================
+# LOOP DO MENU PRINCIPAL
+# ==============================================================================
+
 while true; do
     header
     echo -e "${YW}FASE 1: SISTEMA & HARDWARE (Requer Reboot ao final)${CL}"
-    echo "1) [Sistema]  Base, Repositórios e Microcode"
-    echo "2) [Desktop]  GUI XFCE e Kiosk Mode"
+    echo " 1) [Sistema]    Base, Repositórios e Microcode"
+    echo " 2) [Desktop]    GUI XFCE e Kiosk Mode"
+    
     if systemd-detect-virt | grep -q "none"; then
-        echo "3) [Hardware] Kernel, IOMMU, GPU e ZFS RAM"
+        echo " 3) [Hardware]   Kernel, IOMMU, GPU e ZFS RAM"
     else
-        echo -e "${RD}3) [Hardware] (Bloqueado em VM)${CL}"
+        echo -e "${RD} 3) [Hardware]   (Bloqueado em VM)${CL}"
     fi
+    
     echo ""
     echo -e "${YW}FASE 2: DADOS & SERVIÇOS (Executar após Reboot)${CL}"
-    echo "4) [Storage]  Formatar Disco de Dados, ZFS e Criptografia"
-    echo "5) [Memory]   Ajuste de Swap e Swappiness"
-    echo "6) [Backup]   Instalar PBS Local"
-    echo "7) [Unlock]   Configurar Boot Unlock (YubiKey)"
-    echo "8) [Extras]   Criar Container PVEScriptsLocal"
-    echo "9) [Emulation] Suporte Multi-Arquitetura (LXC Only)"
+    echo " 4) [Storage]    Formatar Disco de Dados, ZFS e Criptografia"
+    echo " 5) [Memory]     Ajuste de Swap e Swappiness"
+    echo " 6) [Backup]     Instalar PBS Local"
+    echo " 7) [Unlock]     Configurar Boot Unlock (YubiKey)"
+    echo " 8) [Extras]     Criar Container PVEScriptsLocal"
+    echo " 9) [Emulation]  Suporte Multi-Arquitetura (LXC Only)"
+    echo "10) [Hardening]  PAM U2F, Sudo e Senhas Fortes"
     echo "------------------------------------------------"
-    echo "R) REINICIAR O SISTEMA"
-    echo "0) Sair"
+    echo " R) REINICIAR O SISTEMA"
+    echo " 0) Sair"
     echo ""
     read -p "Opção: " OPTION
 
@@ -490,6 +587,7 @@ while true; do
         7) step_07_boot_unlock ;;
         8) step_08_pvescripts ;;
         9) step_09_multiarch ;;
+        10) step_10_hardening ;;
         r|R) reboot ;;
         0) exit 0 ;;
         *) echo "Opção inválida." ; sleep 1 ;;
