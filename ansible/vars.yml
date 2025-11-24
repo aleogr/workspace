@@ -1,0 +1,20 @@
+# Configurações Gerais
+new_user: "aleogr"
+debian_codename: "trixie"
+
+# Hardware
+# NOTA: Use o ID único do disco real aqui
+disk_device: "/dev/disk/by-id/nvme-WD_BLACK_SN850X_2000GB_222503A00551"
+# disk_device: "/dev/sdb" # Para VirtualBox
+
+# ZFS & Storage
+pool_name: "tank"
+storage_id_vm: "VM-Storage"
+zfs_arc_gb: 8
+enable_encryption: true
+
+# Backup
+datastore_pbs: "Backup-PBS"
+
+# CPU
+cpu_governor: "powersave" # Intel moderno balanceado

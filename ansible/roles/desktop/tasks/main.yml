@@ -1,0 +1,33 @@
+- name: Instalar XFCE e Chromium
+  ansible.builtin.apt:
+    name: [xfce4, xfce4-goodies, lightdm, chromium, sudo, xorg, xserver-xorg-video-all, xserver-xorg-input-all]
+    state: present
+    install_recommends: no
+
+- name: Criar Usuário {{ new_user }}
+  ansible.builtin.user:
+    name: "{{ new_user }}"
+    password: "{{ user_password | password_hash('sha512') }}"
+    shell: /bin/bash
+    groups: sudo
+    append: yes
+
+- name: Configurar Kiosk Autostart
+  ansible.builtin.blockinfile:
+    path: "/home/{{ new_user }}/.config/autostart/proxmox-ui.desktop"
+    create: yes
+    owner: "{{ new_user }}"
+    group: "{{ new_user }}"
+    mode: '0755'
+    block: |
+      [Desktop Entry]
+      Type=Application
+      Name=Proxmox Kiosk
+      Exec=chromium --kiosk --no-sandbox --ignore-certificate-errors https://localhost:8006 https://localhost:8007
+      StartupNotify=false
+      Terminal=false
+
+- name: Habilitar LightDM
+  ansible.builtin.service:
+    name: lightdm
+    enabled: yes
