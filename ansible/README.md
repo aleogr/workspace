@@ -78,33 +78,63 @@ To ensure stability (especially for NVMe and GPU), follow this strict order:
 3.  Run the full playbook:
     `ansible-playbook -i inventory.ini setup.yml`
 
-## 🧩 Roles Overview
-
-| Role | Description | Tags |
-| :--- | :--- | :--- |
-| **System** | Configures No-Subscription repos, updates OS, installs Microcode, removes subscription nag. | `system` |
-| **Desktop** | Installs XFCE, Kiosk Mode (PVE+PBS), Pipewire Audio, fixes permissions, adds `Ctrl+Alt+K` switcher. | `desktop` |
-| **Hardware** | Configures Kernel (IOMMU, NVMe fix), CPU Governor (Powersave/Performance), GPU Isolation (VFIO). | `hardware` |
-| **Storage** | Formats Data Disk, Creates Encrypted ZFS Pool (`tank`), Datasets, and ZFS Swap. | `storage` |
-| **Backup** | Installs **Proxmox Backup Server** locally, creates Datastore, and links it to PVE. | `backup` |
-| **Security** | Configures **Boot Unlock** service, **PAM U2F** (YubiKey), and Sudo hardening. | `security` |
-| **Extras** | Prepares **PVEScriptsLocal** and Multi-Architecture support (ARM64/RISC-V LXC). | `extras` |
-
 ## ✋ Manual Steps (Post-Run)
 
-While Ansible handles configuration, some security and interactive steps must be done manually:
+While Ansible handles configuration, some security and interactive steps must be done manually.
 
 ### 1. Register YubiKeys (2FA)
-The system is configured to use U2F (PAM), but you must register your keys manually to avoid duplicates.
-Run this command as **root**:
+The system is configured to use U2F (PAM). To register multiple keys correctly without syntax errors, use the included helper script found in the project root.
+
+Run this as **root**:
 
 ```bash
-# Create dir
-mkdir -p /etc/Yubico
+# Make it executable
+chmod +x manual-yubikey-setup.sh
 
-# Register Key (Touch it when blinking)
-pamu2fcfg -n >> /etc/Yubico/u2f_mappings
-
-# Ensure format is correct (user:key...)
-cat /etc/Yubico/u2f_mappings
+# Run the registration wizard
+./manual-yubikey-setup.sh
 ```
+
+### 2. Install PVEScripts Manager
+The installer is interactive. Ansible downloads it for you. Run:
+
+```bash
+/root/install-pvescripts.sh
+```
+
+After installation, re-run the extras tag to update the Kiosk URL automatically: ansible-playbook -i inventory.ini setup.yml --tags "extras"
+
+### 3. Unlock ZFS on Boot
+On reboot, the system will pause.
+- Type: Your ZFS Password (or PIN + YubiKey Static Password).
+- Press: Enter.
+
+## 📂 Project Structure
+
+```text
+ansible-workstation/
+├── inventory.ini           # Localhost definition
+├── setup.yml               # Main Playbook
+├── vars.yml                # Global Variables (Disk IDs, Users)
+├── manual-yubikey-setup.sh # Helper script for 2FA registration
+└── roles/                  # Modular Tasks & Handlers
+    ├── system/             # Repos, Updates
+    ├── desktop/            # GUI, Audio, Kiosk
+    ├── hardware/           # Kernel, GPU VFIO
+    ├── storage/            # ZFS, Swap
+    ├── backup/             # PBS Local
+    ├── security/           # Hardening, Boot Unlock
+    └── extras/             # Multiarch, PVEScripts
+```
+
+## ⚠️ Disclaimer
+
+**Data Loss Warning:** The `storage` role will **format the disk** defined in `disk_device` if the pool `tank` does not exist.
+* The playbook includes a safety check (`zpool list`) to prevent overwriting an existing pool named `tank`.
+* Always verify your `vars.yml` before running.
+
+## 🙏 Credits
+
+Inspired by and adapted from excellent community projects:
+* [Proxmox VE Helper-Scripts](https://tteck.github.io/Proxmox/) (tteck)
+* [Community-Scripts](https://github.com/community-scripts/ProxmoxVE)
