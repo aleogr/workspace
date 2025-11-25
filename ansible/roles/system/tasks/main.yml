@@ -1,41 +1,87 @@
-- name: Configurar Repositórios (Debian & Proxmox No-Sub)
-  ansible.builtin.copy:
-    dest: "/etc/apt/sources.list.d/pve-no-subscription.sources"
-    content: |
-      Types: deb
-      URIs: http://download.proxmox.com/debian/pve
-      Suites: {{ debian_codename }}
-      Components: pve-no-subscription
-      Signed-By: /usr/share/keyrings/proxmox-release-{{ debian_codename }}.gpg
-      
-      Types: deb
-      URIs: http://download.proxmox.com/debian/pbs
-      Suites: {{ debian_codename }}
-      Components: pbs-no-subscription
-      Signed-By: /usr/share/keyrings/proxmox-release-{{ debian_codename }}.gpg
-
-- name: Remover listas antigas para evitar conflitos
+---
+# --- PASSO 1: LIMPEZA (CRÍTICO: FAZER ISSO PRIMEIRO) ---
+- name: Remover repositórios Enterprise (Evitar erro 401 Unauthorized)
   ansible.builtin.file:
     path: "/etc/apt/sources.list.d/{{ item }}"
     state: absent
   loop:
     - pve-enterprise.list
+    - pve-enterprise.sources  <-- O culpado principal
     - ceph.list
+    - ceph.sources            <-- O culpado do seu erro atual
 
-- name: Atualizar Cache e Sistema
+# --- PASSO 2: CRIAÇÃO DOS NOVOS REPOSITÓRIOS ---
+- name: Configurar Repositórios Debian e Proxmox (No-Subscription)
+  ansible.builtin.copy:
+    dest: "/etc/apt/sources.list.d/{{ item.name }}"
+    content: "{{ item.content }}"
+    mode: '0644'
+  loop:
+    - name: debian.sources
+      content: |
+        Types: deb
+        URIs: http://deb.debian.org/debian
+        Suites: {{ debian_codename }} {{ debian_codename }}-updates
+        Components: main contrib non-free non-free-firmware
+        Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+        
+        Types: deb
+        URIs: http://security.debian.org/debian-security
+        Suites: {{ debian_codename }}-security
+        Components: main contrib non-free non-free-firmware
+        Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+
+    - name: pve-no-subscription.sources
+      content: |
+        Types: deb
+        URIs: http://download.proxmox.com/debian/pve
+        Suites: {{ debian_codename }}
+        Components: pve-no-subscription
+        Signed-By: /usr/share/keyrings/proxmox-release-{{ debian_codename }}.gpg
+        
+        Types: deb
+        URIs: http://download.proxmox.com/debian/pbs
+        Suites: {{ debian_codename }}
+        Components: pbs-no-subscription
+        Signed-By: /usr/share/keyrings/proxmox-release-{{ debian_codename }}.gpg
+
+        # Adicionando Ceph No-Subscription explicitamente aqui
+        Types: deb
+        URIs: http://download.proxmox.com/debian/ceph-squid
+        Suites: {{ debian_codename }}
+        Components: no-subscription
+        Signed-By: /usr/share/keyrings/proxmox-release-{{ debian_codename }}.gpg
+
+# --- PASSO 3: ATUALIZAÇÃO ---
+- name: Atualizar Cache e Sistema (Dist-Upgrade)
   ansible.builtin.apt:
     update_cache: yes
     upgrade: dist
     autoremove: yes
 
-- name: Instalar Pacotes Base
+# --- PASSO 4: PACOTES ---
+- name: Instalar Pacotes Essenciais
   ansible.builtin.apt:
-    name: [intel-microcode, build-essential, pve-headers, vim, htop, btop, curl, git, ethtool, nvtop]
+    name:
+      - intel-microcode
+      - build-essential
+      - pve-headers
+      - vim
+      - htop
+      - btop
+      - curl
+      - git
+      - fastfetch
+      - ethtool
+      - net-tools
+      - nvtop
     state: present
 
+# --- PASSO 5: UI TWEAKS ---
 - name: Remover Aviso de Assinatura (Nag Removal)
   ansible.builtin.replace:
     path: /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js
-    regexp: "Ext.Msg.show\\(\\{\\s+title: gettext\\('No valid subscription'\\),"
+    # Regex com aspas simples para evitar conflito no YAML
+    regexp: 'Ext\.Msg\.show\(\{\s+title: gettext\(''No valid subscription''\),'
     replace: "void({ //"
   notify: Restart PVEProxy
