@@ -89,10 +89,10 @@ Run this as **root**:
 
 ```bash
 # Make it executable
-chmod +x manual-yubikey-setup.sh
+chmod +x yubikeys.sh
 
 # Run the registration wizard
-./manual-yubikey-setup.sh
+./yubikeys.sh
 ```
 
 ### 2. Install PVEScripts Manager
