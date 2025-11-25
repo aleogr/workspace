@@ -3,7 +3,7 @@
 # MASTER SETUP SCRIPT - ALEOGR-PC (Release v1.0.0)
 # ==============================================================================
 # Complete automation for Proxmox Workstation with Passthrough, ZFS, and Hardening.
-# Versioning: SemVer 1.0.0 (First Stable Release - English)
+# Versioning: SemVer 1.0.0 (Stable - Audio Fix & U2F Array Logic)
 # ==============================================================================
 
 # --- GLOBAL VARIABLES (EDIT HERE) ---
@@ -132,7 +132,7 @@ EOF
 }
 
 step_02_gui() {
-    echo -e "${GN}>>> STEP 02: Desktop GUI (Kiosk)${CL}"
+    echo -e "${GN}>>> STEP 02: Desktop GUI, Audio & Kiosk${CL}"
     echo "Set password for Linux user ($NEW_USER):"
     read -s PASSWORD
     echo "Confirm:"
@@ -144,14 +144,17 @@ step_02_gui() {
         return
     fi
 
-    apt install -y xfce4 xfce4-goodies lightdm chromium sudo xorg xserver-xorg-video-all xserver-xorg-input-all --no-install-recommends
+    echo "Installing XFCE, Video Drivers, and Audio System (Pipewire/RTKit)..."
+    # Added rtkit and dbus-user-session for proper Audio init on boot
+    apt install -y xfce4 xfce4-goodies lightdm chromium sudo xorg xserver-xorg-video-all xserver-xorg-input-all pipewire pipewire-pulse wireplumber pavucontrol alsa-utils rtkit dbus-user-session --no-install-recommends
 
     if id "$NEW_USER" &>/dev/null; then
         printf "%s:%s\n" "$NEW_USER" "$PASSWORD" | chpasswd
     else
         useradd -m -s /bin/bash "$NEW_USER"
         printf "%s:%s\n" "$NEW_USER" "$PASSWORD" | chpasswd
-        usermod -aG sudo "$NEW_USER"
+        # Added to audio/video/render groups
+        usermod -aG sudo,audio,video,render "$NEW_USER"
     fi
 
     AUTOSTART_DIR="/home/$NEW_USER/.config/autostart"
@@ -168,13 +171,14 @@ EOF
 
     chown -R "$NEW_USER:$NEW_USER" "/home/$NEW_USER/.config"
     
+    # Unmute master just in case
+    amixer sset Master unmute > /dev/null 2>&1 || true
+    amixer sset Master 100% > /dev/null 2>&1 || true
+
     systemctl enable lightdm
     
-    if ! systemctl is-active --quiet lightdm; then
-        systemctl start lightdm
-    fi
-    
     echo -e "${GN}✅ Step 02 Completed.${CL}"
+    echo -e "${YW}Note: Audio and GUI will start after Reboot.${CL}"
     read -p "Press Enter to return to the menu..."
 }
 
@@ -512,9 +516,11 @@ step_10_hardening() {
         echo "Touch the YubiKey button now (when flashing)..."
         
         KEY_DATA=$(pamu2fcfg -n)
-        KEY_DATA_CLEAN=$(echo -n "$KEY_DATA" | tr -d '\n\r[:space:]')
+        # Sanitization: Remove newlines AND leading colons to avoid :: issues
+        KEY_DATA_CLEAN=$(echo -n "$KEY_DATA" | tr -d '\n\r[:space:]' | sed 's/^://')
         
         if [ -n "$KEY_DATA_CLEAN" ]; then
+            # Save to temp file (one key per line)
             printf "%s\n" "$KEY_DATA_CLEAN" >> "$KEYS_TEMP_FILE"
             echo -e "${GN}Key captured!${CL}"
         else
@@ -534,10 +540,10 @@ step_10_hardening() {
         touch "$MAPPING_FILE"
         grep -v "^$NEW_USER" "$MAPPING_FILE" > "${MAPPING_FILE}.tmp"
         
-        # Raw Append using paste
-        JOINED_KEYS=$(grep -v '^$' "$KEYS_TEMP_FILE" | paste -sd "" -)
+        # Join lines with : using paste (Guaranteed no duplicates)
+        JOINED_KEYS=$(grep -v '^$' "$KEYS_TEMP_FILE" | paste -sd: -)
         
-        echo "${NEW_USER}${JOINED_KEYS}" >> "${MAPPING_FILE}.tmp"
+        echo "${NEW_USER}:${JOINED_KEYS}" >> "${MAPPING_FILE}.tmp"
         mv "${MAPPING_FILE}.tmp" "$MAPPING_FILE"
         
         echo -e "${GN}✅ Keys successfully saved to $MAPPING_FILE${CL}"
@@ -553,7 +559,7 @@ while true; do
     header
     echo -e "${YW}PHASE 1: SYSTEM & HARDWARE (Reboot required at end)${CL}"
     echo " 1) [System]    Base, Repositories & Microcode"
-    echo " 2) [Desktop]   GUI XFCE & Kiosk Mode"
+    echo " 2) [Desktop]   GUI XFCE, Audio & Kiosk Mode"
     if systemd-detect-virt | grep -q "none"; then
         echo " 3) [Hardware]  Kernel, IOMMU, GPU & ZFS RAM"
     else
