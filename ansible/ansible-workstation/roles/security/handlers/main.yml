@@ -1,0 +1,6 @@
+---
+- name: Enable Boot Unlock
+  ansible.builtin.systemd:
+    name: zfs-load-key
+    enabled: yes
+    daemon_reload: yes

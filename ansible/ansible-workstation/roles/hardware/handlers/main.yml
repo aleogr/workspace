@@ -1,0 +1,12 @@
+---
+- name: Refresh Bootloader
+  ansible.builtin.command: proxmox-boot-tool refresh
+
+- name: Enable CPU Governor
+  ansible.builtin.systemd:
+    name: cpupower-governor
+    enabled: yes
+    state: started
+
+- name: Update Initramfs
+  ansible.builtin.command: update-initramfs -u -k all

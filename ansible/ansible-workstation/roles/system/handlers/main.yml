@@ -1,0 +1,5 @@
+---
+- name: Restart PVEProxy
+  ansible.builtin.service:
+    name: pveproxy
+    state: restarted

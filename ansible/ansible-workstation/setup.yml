@@ -1,0 +1,29 @@
+---
+- name: Configurar Workstation Proxmox (aleogr-pc)
+  hosts: workstation
+  become: true
+  vars_files:
+    - vars.yml
+  
+  vars_prompt:
+    - name: "user_password"
+      prompt: "Senha para o usuário Linux (aleogr)"
+      private: yes
+      encrypt: "sha512_crypt"
+    
+    - name: "zfs_password"
+      prompt: "Senha para Criptografia ZFS"
+      private: yes
+      
+    - name: "pbs_password"
+      prompt: "Senha de ROOT para o PBS"
+      private: yes
+
+  roles:
+    - { role: system, tags: ['system'] }
+    - { role: desktop, tags: ['desktop'] }
+    - { role: hardware, tags: ['hardware'] }
+    - { role: storage, tags: ['storage'] }
+    - { role: backup, tags: ['backup'] }
+    - { role: security, tags: ['security'] }
+    - { role: extras, tags: ['extras'] }
