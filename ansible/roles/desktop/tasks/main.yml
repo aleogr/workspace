@@ -1,16 +1,30 @@
-- name: Instalar Interface Gráfica e Áudio
+---
+- name: Instalar Interface Gráfica, Áudio e Dependências
   ansible.builtin.apt:
-    name: 
+    name:
       - xfce4
       - xfce4-goodies
+      - xfce4-session
       - lightdm
       - chromium
       - sudo
       - xorg
+      - xserver-xorg-video-all
+      - xserver-xorg-input-all
       - pipewire
+      - pipewire-pulse
       - wireplumber
       - pavucontrol
-      - dbus-x11
+      - alsa-utils
+      - rtkit
+      - dbus-user-session
+      - dbus-x11  # Necessário para xfconf-query
+      - xfce4-pulseaudio-plugin
+      - xarchiver
+      - xz-utils
+      - zip
+      - unzip
+      - p7zip-full
     state: present
     install_recommends: no
 
@@ -22,12 +36,21 @@
     groups: sudo,audio,video,render
     append: yes
 
-- name: Configurar Kiosk Mode
+- name: Criar diretório Autostart
+  ansible.builtin.file:
+    path: "/home/{{ new_user }}/.config/autostart"
+    state: directory
+    owner: "{{ new_user }}"
+    group: "{{ new_user }}"
+    mode: '0755'
+
+- name: Configurar Arquivo Kiosk
   ansible.builtin.blockinfile:
     path: "/home/{{ new_user }}/.config/autostart/proxmox-ui.desktop"
     create: yes
     owner: "{{ new_user }}"
     group: "{{ new_user }}"
+    mode: '0755'
     block: |
       [Desktop Entry]
       Type=Application
@@ -36,7 +59,46 @@
       StartupNotify=false
       Terminal=false
 
-- name: Ativar LightDM
+- name: Criar Script de Alternância (Switch Mode)
+  ansible.builtin.copy:
+    dest: /usr/local/bin/switch-mode
+    mode: '0755'
+    content: |
+      #!/bin/bash
+      USER_HOME="/home/{{ new_user }}"
+      AUTOSTART="$USER_HOME/.config/autostart/proxmox-ui.desktop"
+      DISABLED="$USER_HOME/.config/autostart/proxmox-ui.desktop.disabled"
+      if [ -f "$AUTOSTART" ]; then
+          mv "$AUTOSTART" "$DISABLED"
+          pkill -KILL -u {{ new_user }}
+      elif [ -f "$DISABLED" ]; then
+          mv "$DISABLED" "$AUTOSTART"
+          pkill -KILL -u {{ new_user }}
+      fi
+
+- name: Configurar Atalho de Teclado (Ctrl+Alt+K)
+  ansible.builtin.shell: |
+    export DISPLAY=:0
+    dbus-launch xfconf-query -c xfce4-keyboard-shortcuts -p '/commands/custom/<Control><Alt>k' -n -t string -s '/usr/local/bin/switch-mode'
+  become: true
+  become_user: "{{ new_user }}"
+  register: shortcut_result
+  failed_when: "shortcut_result.rc != 0 and 'already exists' not in shortcut_result.stderr"
+  changed_when: "shortcut_result.rc == 0"
+
+- name: Desmutar Áudio Master
+  ansible.builtin.shell: |
+    amixer sset Master unmute || true
+    amixer sset Master 100% || true
+
+- name: Corrigir Permissões da Home (Recursivo)
+  ansible.builtin.file:
+    path: "/home/{{ new_user }}"
+    owner: "{{ new_user }}"
+    group: "{{ new_user }}"
+    recurse: yes
+
+- name: Habilitar LightDM
   ansible.builtin.service:
     name: lightdm
     enabled: yes

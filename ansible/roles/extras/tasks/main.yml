@@ -1,70 +1,41 @@
 ---
-# --- TAREFA 1: SUPORTE MULTI-ARCH ---
-- name: Instalar suporte a Multi-Arquitetura (LXC Only)
+- name: Instalar suporte Multi-Arquitetura (LXC)
   ansible.builtin.apt:
-    name:
-      - qemu-user-static
-      - binfmt-support
+    name: [qemu-user-static, binfmt-support]
     state: present
-    update_cache: yes
 
-# --- TAREFA 2: PVESCRIPTS LOCAL (MODO MANUAL SEGURO) ---
-- name: Garantir arquivo de Timezone
-  ansible.builtin.copy:
-    content: "{{ lookup('pipe', 'timedatectl show --property=Timezone --value') }}\n"
-    dest: /etc/timezone
-    mode: '0644'
-
-- name: Verificar se o Container PVEScriptsLocal já existe
+- name: Verificar PVEScriptsLocal
   ansible.builtin.shell: pct list | grep -q "pve-scripts-local"
-  register: container_check
-  failed_when: container_check.rc not in [0, 1]
+  register: pct_check
+  failed_when: pct_check.rc not in [0, 1]
   changed_when: false
 
-# Em vez de rodar e travar, nós baixamos o script para você
-- name: Baixar Instalador do PVEScriptsLocal
+- name: Baixar Instalador PVEScripts
   ansible.builtin.get_url:
     url: https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/ct/pve-scripts-local.sh
     dest: /root/install-pvescripts.sh
     mode: '0755'
-  when: container_check.rc == 1
+  when: pct_check.rc == 1
 
-- name: Aviso de Instalação Manual
+- name: AVISO PVESCRIPTS
   ansible.builtin.debug:
-    msg: 
-      - "O instalador do PVEScriptsLocal requer interação (Escolha de Storage/ID)."
-      - "O arquivo foi salvo em: /root/install-pvescripts.sh"
-      - "Por favor, execute-o manualmente após o Ansible terminar: ./install-pvescripts.sh"
-  when: container_check.rc == 1
+    msg: "Para instalar o gerenciador de scripts, rode: ./install-pvescripts.sh"
+  when: pct_check.rc == 1
 
-# --- TAREFA 3: INTEGRAÇÃO KIOSK (Só funciona se o container já existir) ---
-# Esta parte vai pular agora, mas funcionará se você rodar o Ansible de novo APÓS instalar o container manualmente.
+# Integração Kiosk (Roda se o container existir)
+- name: Obter IP do Container
+  ansible.builtin.shell: pct exec $(pct list | grep pve-scripts | awk '{print $1}') -- ip -4 -br addr show eth0 | awk '{print $3}' | cut -d/ -f1
+  register: pct_ip
+  when: pct_check.rc == 0
+  ignore_errors: true
 
-- name: Obter ID do Container PVEScriptsLocal
-  ansible.builtin.shell: pct list | grep "pve-scripts-local" | awk '{print $1}'
-  register: container_id
-  changed_when: false
-  when: container_check.rc == 0
-
-- name: Obter IP do Container PVEScriptsLocal
-  ansible.builtin.shell: |
-    pct exec {{ container_id.stdout }} -- ip -4 -br addr show eth0 | awk '{print $3}' | cut -d/ -f1
-  register: container_ip
-  changed_when: false
-  when: 
-    - container_check.rc == 0
-    - container_id.stdout != ""
-
-- name: Adicionar URL do Scripts ao Kiosk Mode
-  vars:
-    kiosk_file: "/home/{{ new_user }}/.config/autostart/proxmox-ui.desktop"
-    scripts_url: "http://{{ container_ip.stdout }}:3000"
+- name: Adicionar URL ao Kiosk
   ansible.builtin.replace:
-    path: "{{ kiosk_file }}"
-    regexp: '(Exec=chromium.*https://localhost:8007)(?!.*{{ scripts_url }})(.*)'
-    replace: '\1 {{ scripts_url }}\2'
+    path: "/home/{{ new_user }}/.config/autostart/proxmox-ui.desktop"
+    regexp: '(Exec=chromium.*)( https://localhost:8007)(.*)'
+    replace: '\1\2 http://{{ pct_ip.stdout }}:3000'
   when: 
-    - container_check.rc == 0
-    - container_ip.stdout is defined 
-    - container_ip.stdout != ""
+    - pct_check.rc == 0
+    - pct_ip.stdout is defined
+    - pct_ip.stdout != ""
   notify: Restart LightDM
