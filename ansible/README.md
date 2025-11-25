@@ -102,7 +102,7 @@ The installer is interactive. Ansible downloads it for you. Run:
 /root/install-pvescripts.sh
 ```
 
-After installation, re-run the extras tag to update the Kiosk URL automatically: ansible-playbook -i inventory.ini setup.yml --tags "extras"
+After installation, re-run the extras tag to update the Kiosk URL automatically: `ansible-playbook -i inventory.ini setup.yml --tags "extras"`
 
 ### 3. Unlock ZFS on Boot
 On reboot, the system will pause.
