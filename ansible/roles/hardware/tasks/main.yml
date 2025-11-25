@@ -1,0 +1,38 @@
+- name: Verificar se é VM (Segurança)
+  ansible.builtin.fail:
+    msg: "Abortando: Hardware Tune não deve rodar em VM."
+  when: ansible_virtualization_role == "guest"
+
+- name: Aplicar Parâmetros de Kernel (IOMMU + NVMe Fix)
+  ansible.builtin.copy:
+    dest: /etc/kernel/cmdline
+    content: "root=ZFS=rpool/ROOT/pve-1 boot=zfs intel_iommu=on iommu=pt pci=noaer nvme_core.default_ps_max_latency_us=0 split_lock_detect=off video=efifb:off video=vesafb:off video=simplefb:off initcall_blacklist=sysfb_init"
+  notify: Refresh Bootloader
+
+- name: Configurar VFIO (Blacklist Nvidia)
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/blacklist.conf
+    content: |
+      blacklist nouveau
+      blacklist nvidia
+      blacklist nvidia_drm
+      blacklist nvidia_modeset
+
+- name: Detectar e Isolar GPU (Script Shell)
+  ansible.builtin.shell: |
+    update-pciids
+    lspci -nn | grep -i nvidia | grep -oP '\[\K[0-9a-f]{4}:[0-9a-f]{4}(?=\])' | tr '\n' ',' | sed 's/,$//'
+  register: gpu_ids
+  changed_when: false
+
+- name: Escrever vfio.conf
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/vfio.conf
+    content: "options vfio-pci ids={{ gpu_ids.stdout }} disable_vga=1"
+  when: gpu_ids.stdout != ""
+  notify: Update Initramfs
+
+- name: Limitar RAM ZFS
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/zfs.conf
+    content: "options zfs zfs_arc_max={{ zfs_arc_limit_bytes }}"

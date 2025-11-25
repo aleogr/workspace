@@ -5,25 +5,25 @@
   vars_files:
     - vars.yml
   
-  # Pede as senhas no início da execução para não parar depois
   vars_prompt:
     - name: "user_password"
-      prompt: "Digite a senha para o usuário Linux (aleogr)"
+      prompt: "Senha para o usuário Linux (aleogr)"
       private: yes
+      encrypt: "sha512_crypt"
     
     - name: "zfs_password"
-      prompt: "Digite a senha para Criptografia ZFS (Se ativada)"
+      prompt: "Senha para Criptografia ZFS"
       private: yes
       
-    - name: "pbs_root_password"
-      prompt: "Digite a senha de ROOT para conectar o PBS"
+    - name: "pbs_password"
+      prompt: "Senha de ROOT para o PBS"
       private: yes
 
   roles:
-    - { role: system, tags: ['system', 'step1'] }
-    - { role: desktop, tags: ['desktop', 'step2'] }
-    - { role: hardware, tags: ['hardware', 'step3'] }
-    - { role: storage, tags: ['storage', 'step4', 'step5'] }
-    - { role: backup, tags: ['backup', 'step6'] }
-    - { role: security, tags: ['security', 'step7', 'step10'] }
-    - { role: extras, tags: ['extras', 'step8', 'step9'] }
+    - { role: system, tags: ['system'] }
+    - { role: desktop, tags: ['desktop'] }
+    - { role: hardware, tags: ['hardware'] }
+    - { role: storage, tags: ['storage'] }
+    - { role: backup, tags: ['backup'] }
+    - { role: security, tags: ['security'] }
+    - { role: extras, tags: ['extras'] }

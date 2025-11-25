@@ -1,37 +1,20 @@
-- name: Configurar Repositórios Debian e Proxmox (No-Subscription)
+- name: Configurar Repositórios (Debian & Proxmox No-Sub)
   ansible.builtin.copy:
-    dest: "/etc/apt/sources.list.d/{{ item.name }}"
-    content: "{{ item.content }}"
-    mode: '0644'
-  loop:
-    - name: debian.sources
-      content: |
-        Types: deb
-        URIs: http://deb.debian.org/debian
-        Suites: {{ debian_codename }} {{ debian_codename }}-updates
-        Components: main contrib non-free non-free-firmware
-        Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
-        
-        Types: deb
-        URIs: http://security.debian.org/debian-security
-        Suites: {{ debian_codename }}-security
-        Components: main contrib non-free non-free-firmware
-        Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
-    - name: pve-no-subscription.sources
-      content: |
-        Types: deb
-        URIs: http://download.proxmox.com/debian/pve
-        Suites: {{ debian_codename }}
-        Components: pve-no-subscription
-        Signed-By: /usr/share/keyrings/proxmox-release-{{ debian_codename }}.gpg
-        
-        Types: deb
-        URIs: http://download.proxmox.com/debian/pbs
-        Suites: {{ debian_codename }}
-        Components: pbs-no-subscription
-        Signed-By: /usr/share/keyrings/proxmox-release-{{ debian_codename }}.gpg
+    dest: "/etc/apt/sources.list.d/pve-no-subscription.sources"
+    content: |
+      Types: deb
+      URIs: http://download.proxmox.com/debian/pve
+      Suites: {{ debian_codename }}
+      Components: pve-no-subscription
+      Signed-By: /usr/share/keyrings/proxmox-release-{{ debian_codename }}.gpg
+      
+      Types: deb
+      URIs: http://download.proxmox.com/debian/pbs
+      Suites: {{ debian_codename }}
+      Components: pbs-no-subscription
+      Signed-By: /usr/share/keyrings/proxmox-release-{{ debian_codename }}.gpg
 
-- name: Remover listas antigas (.list) para evitar conflitos
+- name: Remover listas antigas para evitar conflitos
   ansible.builtin.file:
     path: "/etc/apt/sources.list.d/{{ item }}"
     state: absent
@@ -39,38 +22,20 @@
     - pve-enterprise.list
     - ceph.list
 
-- name: Atualizar Cache e Sistema (Dist-Upgrade)
+- name: Atualizar Cache e Sistema
   ansible.builtin.apt:
     update_cache: yes
     upgrade: dist
     autoremove: yes
 
-- name: Instalar Pacotes Essenciais
+- name: Instalar Pacotes Base
   ansible.builtin.apt:
-    name:
-      - intel-microcode
-      - build-essential
-      - pve-headers
-      - vim
-      - htop
-      - btop
-      - curl
-      - git
-      - fastfetch
-      - ethtool
-      - net-tools
-      - nvtop
+    name: [intel-microcode, build-essential, pve-headers, vim, htop, btop, curl, git, ethtool, nvtop]
     state: present
 
 - name: Remover Aviso de Assinatura (Nag Removal)
   ansible.builtin.replace:
     path: /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js
-    regexp: "(Ext.Msg.show\\(\\{\\s+title: gettext\\('No valid subscription'\\),)"
-    replace: "void({ //\\1"
+    regexp: "Ext.Msg.show\\(\\{\\s+title: gettext\\('No valid subscription'\\),"
+    replace: "void({ //"
   notify: Restart PVEProxy
-
-handlers:
-  - name: Restart PVEProxy
-    service:
-      name: pveproxy
-      state: restarted

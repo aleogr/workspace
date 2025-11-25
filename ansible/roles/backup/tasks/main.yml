@@ -1,0 +1,21 @@
+- name: Instalar PBS
+  ansible.builtin.apt:
+    name: [proxmox-backup-server, proxmox-backup-client]
+    state: present
+
+- name: Criar Datastore PBS
+  ansible.builtin.command: >
+    proxmox-backup-manager datastore create {{ pbs_datastore }} /{{ pool_name }}/backups
+  register: pbs_create
+  failed_when: "pbs_create.rc != 0 and 'already exists' not in pbs_create.stderr"
+
+- name: Obter Fingerprint
+  ansible.builtin.shell: proxmox-backup-manager cert info | grep "Fingerprint" | awk '{print $NF}'
+  register: fingerprint
+  changed_when: false
+
+- name: Adicionar PBS ao PVE
+  ansible.builtin.command: >
+    pvesm add pbs {{ pbs_datastore }} --server 127.0.0.1 --datastore {{ pbs_datastore }} --fingerprint {{ fingerprint.stdout }} --username {{ pbs_user }} --password {{ pbs_password }} --content backup
+  failed_when: false # Ignora se já existe
+  no_log: true
