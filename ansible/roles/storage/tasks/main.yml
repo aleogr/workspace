@@ -1,17 +1,39 @@
+---
+# --- 1. SELEÇÃO INTELIGENTE DE DISCO ---
+- name: Detectar ambiente (VM ou Real) e definir disco alvo
+  ansible.builtin.set_fact:
+    # Se for 'guest' (VM), usa /dev/sdb. Se não, usa o ID do vars.yml
+    target_disk: "{{ '/dev/sdb' if ansible_virtualization_role == 'guest' else disk_device }}"
+
+- name: Exibir disco selecionado (Debug)
+  ansible.builtin.debug:
+    msg: "Ambiente: {{ ansible_virtualization_role }}. Usando disco: {{ target_disk }}"
+
+# --- 2. VERIFICAÇÃO ROBUSTA ---
 - name: Verificar existência do Pool {{ pool_name }}
   ansible.builtin.command: zpool list {{ pool_name }}
   register: pool_exists
-  ignore_errors: true
+  # Correção: Não falha se retornar 1 (não encontrado), apenas registra
+  failed_when: pool_exists.rc not in [0, 1]
   changed_when: false
 
-- name: Formatar e Criar ZFS (Se não existir)
+# --- 3. CRIAÇÃO DO POOL ---
+- name: Formatar e Criar Pool ZFS (Se não existir)
   ansible.builtin.shell: |
-    sgdisk --zap-all {{ disk_device }}
-    wipefs -a {{ disk_device }}
-    echo "{{ zfs_password }}" | zpool create -f -o ashift=12 -o autotrim=on -O compression=lz4 -O atime=off -O encryption=aes-256-gcm -O keyformat=passphrase -O keylocation=prompt {{ pool_name }} {{ disk_device }}
-  when: pool_exists.rc != 0 and disk_device is defined
-  no_log: true
+    # Limpa o disco correto (target_disk)
+    sgdisk --zap-all {{ target_disk }}
+    wipefs -a {{ target_disk }}
+    
+    # Cria o pool usando a senha fornecida no prompt
+    echo "{{ zfs_password }}" | zpool create -f -o ashift=12 -o autotrim=on -O compression=lz4 -O atime=off -O acltype=posixacl -O xattr=sa -O encryption=aes-256-gcm -O keyformat=passphrase -O keylocation=prompt {{ pool_name }} {{ target_disk }}
+  
+  # Só roda se o pool não existir (rc == 1) E se tivermos uma senha
+  when: 
+    - pool_exists.rc == 1
+    - zfs_password is defined
+  no_log: true # Esconde a senha do log de erro
 
+# --- 4. DATASETS ---
 - name: Criar Datasets
   community.general.zfs:
     name: "{{ item }}"
@@ -20,13 +42,16 @@
     - "{{ pool_name }}/vms"
     - "{{ pool_name }}/backups"
 
-- name: Configurar Storage no Proxmox
+# --- 5. STORAGE.CFG ---
+- name: Adicionar Storage ao Proxmox
   ansible.builtin.command: >
     pvesm add zfspool {{ storage_id_vm }} --pool {{ pool_name }}/vms --content images,rootdir --sparse 1
-  register: pvesm_cmd
-  failed_when: "pvesm_cmd.rc != 0 and 'already defined' not in pvesm_cmd.stderr"
+  register: pvesm_add
+  # Ignora erro se já estiver adicionado
+  failed_when: "pvesm_add.rc != 0 and 'already defined' not in pvesm_add.stderr"
+  changed_when: "pvesm_add.rc == 0"
 
-# SWAP CONFIG
+# --- 6. SWAP ---
 - name: Configurar Swappiness
   ansible.posix.sysctl:
     name: vm.swappiness
@@ -34,10 +59,24 @@
     state: present
     sysctl_file: /etc/sysctl.d/99-pve-swappiness.conf
 
-- name: Criar Swap ZVol
+- name: Verificar se Swap ZFS já existe
+  ansible.builtin.command: zfs list rpool/swap
+  register: swap_check
+  failed_when: false
+  changed_when: false
+
+- name: Criar e Ativar Swap ZVol (Se não existir)
   ansible.builtin.shell: |
     zfs create -V 8G -b $(getconf PAGESIZE) -o compression=zle -o logbias=throughput -o sync=always -o primarycache=metadata -o secondarycache=none -o com.sun:auto-snapshot=false rpool/swap
+    udevadm settle
     mkswap -f /dev/zvol/rpool/swap
     swapon /dev/zvol/rpool/swap
-  args:
-    creates: /dev/zvol/rpool/swap
+  when: swap_check.rc != 0
+
+- name: Persistir Swap no Fstab
+  ansible.posix.mount:
+    path: none
+    src: /dev/zvol/rpool/swap
+    fstype: swap
+    opts: sw
+    state: present
