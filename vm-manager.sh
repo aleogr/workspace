@@ -1,9 +1,10 @@
 #!/bin/bash
 # ==============================================================================
-# PROXMOX VM MANAGER - ALEOGR (v5.2 - Ordered Tags)
+# PROXMOX VM MANAGER - ALEOGR (v5.3 - Dashboard Pro)
 # ==============================================================================
-# Gerenciamento de VMs.
-# Novidade v5.2: Visualização de tags forçada na ordem: Tipo > Arch > Família.
+# - Menu organizado (Submenus).
+# - Dashboard com ações: Start, Shutdown, Stop, Delete.
+# - Ordenação de Tags Rigorosa: VM > Arch > Family > Others.
 # ==============================================================================
 
 # --- CONFIGURAÇÕES PADRÃO ---
@@ -30,7 +31,7 @@ header() {
  \_/\_/\____/(____) \___/  \___/ (__\_)
 EOF
     echo -e "${CL}"
-    echo -e "${YW}VM Manager v5.2 (Ordered Tags)${CL}"
+    echo -e "${YW}VM Manager v5.3 (Dashboard Pro)${CL}"
     echo ""
 }
 
@@ -38,9 +39,7 @@ EOF
 
 detect_gpu() {
     GPU_RAW=$(lspci -nn | grep -i "NVIDIA" | grep -i "VGA" | head -n 1 | awk '{print $1}')
-    if [ -z "$GPU_RAW" ]; then
-        return 1
-    else
+    if [ -z "$GPU_RAW" ]; then return 1; else
         SHORT_ID=$(echo "$GPU_RAW" | cut -d. -f1)
         echo "0000:$SHORT_ID"
         return 0
@@ -56,13 +55,12 @@ configure_cpu_affinity() {
     local VMID=$1
     echo ""
     echo -e "${YW}--- CPU PINNING (i9-13900K) ---${CL}"
-    echo "1) P-Cores (0-15)  -> Performance (Jogos/Compilação)"
-    echo "2) E-Cores (16-31) -> Background/Serviços"
-    echo "3) Manual          -> Definir lista (ex: 0-7)"
-    echo "4) Padrão          -> Automático do Proxmox"
+    echo "1) P-Cores (0-15)  -> Performance"
+    echo "2) E-Cores (16-31) -> Background"
+    echo "3) Manual          -> Definir lista"
+    echo "4) Padrão          -> Automático"
     echo "0) Voltar"
     read -p "Opção: " CPU_OPT
-
     case $CPU_OPT in
         1) qm set "$VMID" --affinity "0-15"; echo -e "${GN}P-Cores.${CL}" ;;
         2) qm set "$VMID" --affinity "16-31"; echo -e "${BL}E-Cores.${CL}" ;;
@@ -72,16 +70,37 @@ configure_cpu_affinity() {
     esac
 }
 
-# --- DASHBOARD ---
+# --- FUNÇÃO: ORDENAR TAGS ---
+sort_tags() {
+    # Recebe string "tag1,tag2,tag3"
+    local RAW_TAGS=$(echo "$1" | tr ',' ' ')
+    local TYPE=""
+    local ARCH=""
+    local FAMILY=""
+    local OTHERS=""
+
+    for t in $RAW_TAGS; do
+        case "$t" in
+            vm|container) TYPE="$t" ;;
+            amd64|arm64|riscv64) ARCH="$t" ;;
+            linux|windows|bsd|macos) FAMILY="$t" ;;
+            *) OTHERS="$OTHERS $t" ;;
+        esac
+    done
+
+    # Monta na ordem estrita: TIPO > ARCH > FAMILY > OUTROS
+    # O 'tr -s' remove espaços duplos
+    echo "$TYPE $ARCH $FAMILY $OTHERS" | tr -s ' ' | tr ' ' ','
+}
+
+# --- DASHBOARD INTERATIVO ---
 manage_vms() {
     while true; do
         header
         echo -e "${GN}--- DASHBOARD DE VMS ---${CL}"
-        
-        # Cabeçalho ajustado
-        printf "${YW}%-6s | %-25s | %-10s | %-4s | %-8s | %-10s | %-40s${CL}\n" \
-            "ID" "NOME" "STATUS" "CPU" "RAM" "DISPLAY" "TAGS (Ord.)"
-        echo "------------------------------------------------------------------------------------------------------------------------"
+        printf "${YW}%-6s | %-20s | %-10s | %-4s | %-8s | %-8s | %-35s${CL}\n" \
+            "ID" "NOME" "STATUS" "CPU" "RAM" "TYPE" "TAGS (Sorted)"
+        echo "--------------------------------------------------------------------------------------------------------"
 
         for vmid in $(qm list | awk 'NR>1 {print $1}' | sort -n); do
             CONF=$(qm config $vmid)
@@ -98,268 +117,269 @@ manage_vms() {
                 MEM="${MEM_MB}MB"
             fi
 
-            # --- LÓGICA DE ORDENAÇÃO DE TAGS ---
-            RAW_TAGS=$(echo "$CONF" | grep "^tags:" | cut -d: -f2 | tr -d ' ' | tr ',' ' ')
-            SORTED_TAGS=""
-            
-            # 1. Prioridade: Tipo (vm, container)
-            for t in $RAW_TAGS; do if [[ "$t" == "vm" || "$t" == "container" ]]; then SORTED_TAGS="$SORTED_TAGS $t"; fi; done
-            # 2. Prioridade: Arquitetura (amd64, arm64)
-            for t in $RAW_TAGS; do if [[ "$t" == "amd64" || "$t" == "arm64" ]]; then SORTED_TAGS="$SORTED_TAGS $t"; fi; done
-            # 3. Prioridade: Família (windows, linux, bsd)
-            for t in $RAW_TAGS; do if [[ "$t" == "windows" || "$t" == "linux" || "$t" == "bsd" ]]; then SORTED_TAGS="$SORTED_TAGS $t"; fi; done
-            # 4. Resto (gpu, desktop, server, etc)
-            for t in $RAW_TAGS; do 
-                if [[ "$t" != "vm" && "$t" != "container" && "$t" != "amd64" && "$t" != "arm64" && "$t" != "windows" && "$t" != "linux" && "$t" != "bsd" ]]; then 
-                    SORTED_TAGS="$SORTED_TAGS $t"
-                fi
-            done
-            
-            # Formata com vírgulas e remove espaço inicial
-            TAGS_DISPLAY=$(echo $SORTED_TAGS | tr ' ' ',')
-            # -----------------------------------
+            # Ordenação de Tags
+            RAW_TAGS=$(echo "$CONF" | grep "^tags:" | cut -d: -f2 | tr -d ' ')
+            SORTED_TAGS=$(sort_tags "$RAW_TAGS")
 
-            if echo "$CONF" | grep -q "hostpci0"; then DISPLAY="GPU"; else
-                DISPLAY=$(echo "$CONF" | grep "^vga:" | awk '{print $2}')
-                [ -z "$DISPLAY" ] && DISPLAY="Std"
-            fi
+            # Display Type
+            if echo "$CONF" | grep -q "hostpci0"; then DISPLAY="GPU"; else DISPLAY="Std"; fi
 
             if [ "$STATUS" == "running" ]; then S_COLOR=$GN; else S_COLOR=$RD; fi
 
-            printf "%-6s | %-25s | ${S_COLOR}%-10s${CL} | %-4s | %-8s | %-10s | %-40s\n" \
-                "$vmid" "${NAME:0:25}" "$STATUS" "$CORES" "$MEM" "$DISPLAY" "${TAGS_DISPLAY:0:40}"
+            printf "%-6s | %-20s | ${S_COLOR}%-10s${CL} | %-4s | %-8s | %-8s | %-35s\n" \
+                "$vmid" "${NAME:0:20}" "$STATUS" "$CORES" "$MEM" "$DISPLAY" "${SORTED_TAGS:0:35}"
         done
-        echo "------------------------------------------------------------------------------------------------------------------------"
+        echo "--------------------------------------------------------------------------------------------------------"
         echo ""
-        echo -e "${YW}Ações:${CL}"
-        echo "Digite o ID da VM para [EXCLUIR]"
-        echo "Digite 'r' para [ATUALIZAR]"
-        echo "Pressione Enter para [VOLTAR] ao menu principal"
+        echo -e "Digite o ${BL}ID${CL} da VM para abrir o menu de ações."
+        echo -e "Digite ${BL}r${CL} para atualizar."
+        echo -e "Digite ${BL}0${CL} ou Enter para voltar."
         echo ""
         read -p "> " ACTION
 
-        if [ -z "$ACTION" ]; then return; fi
+        if [ -z "$ACTION" ] || [ "$ACTION" == "0" ]; then return; fi
         if [ "$ACTION" == "r" ]; then continue; fi
 
+        # Menu de Ações da VM
         if [[ "$ACTION" =~ ^[0-9]+$ ]]; then
             if ! qm status "$ACTION" >/dev/null 2>&1; then
                 echo -e "${RD}VM $ACTION não encontrada.${CL}"; sleep 1; continue
             fi
             
-            VMNAME_DEL=$(qm config "$ACTION" | grep name | awk '{print $2}')
-            echo -e "${RD}!!! ATENÇÃO !!!${CL}"
-            echo -e "Você vai DESTRUIR a VM: ${BL}$ACTION ($VMNAME_DEL)${CL}"
-            echo -e "Todos os dados e discos serão apagados (Purge)."
-            read -p "Digite 'CONFIRMAR' para prosseguir: " SURE
+            CURR_STATUS=$(qm status $ACTION | awk '{print $2}')
+            VM_NAME=$(qm config $ACTION | grep name | awk '{print $2}')
             
-            if [ "$SURE" == "CONFIRMAR" ]; then
-                qm stop "$ACTION" >/dev/null 2>&1
-                qm destroy "$ACTION" --purge
-                echo -e "${GN}VM Excluída.${CL}"
-                sleep 2
+            echo ""
+            echo -e "${YW}--- GERENCIAR VM: $ACTION ($VM_NAME) ---${CL}"
+            echo -e "Status Atual: ${S_COLOR}$CURR_STATUS${CL}"
+            echo ""
+            
+            if [ "$CURR_STATUS" == "stopped" ]; then
+                echo "1) Iniciar (Start)"
+                echo "2) Excluir (Delete - Purge)"
             else
-                echo "Cancelado."
-                sleep 1
+                echo "1) Desligar Suave (Shutdown ACPI)"
+                echo "2) Forçar Parada (Stop - Kill)"
+                echo "3) Reiniciar (Reboot)"
+                echo "4) Excluir (Delete - Purge)"
             fi
+            echo "0) Cancelar"
+            echo ""
+            read -p "Ação: " VM_ACT
+
+            case $VM_ACT in
+                1) 
+                    if [ "$CURR_STATUS" == "stopped" ]; then
+                        echo "Iniciando..." && qm start $ACTION
+                    else
+                        echo "Enviando sinal de desligamento..." && qm shutdown $ACTION
+                    fi
+                    ;;
+                2)
+                    if [ "$CURR_STATUS" == "stopped" ]; then
+                        # Lógica de Delete (Stop)
+                        echo -e "${RD}VOCÊ VAI DELETAR A VM $ACTION PERMANENTEMENTE!${CL}"
+                        read -p "Digite 'CONFIRMAR': " SURE
+                        if [ "$SURE" == "CONFIRMAR" ]; then qm destroy $ACTION --purge; echo "Deletada."; sleep 1; fi
+                    else
+                        # Lógica de Stop (Running)
+                        echo "Matando processo da VM..." && qm stop $ACTION
+                    fi
+                    ;;
+                3) 
+                    if [ "$CURR_STATUS" == "running" ]; then echo "Reiniciando..." && qm reboot $ACTION; fi 
+                    ;;
+                4)
+                    # Delete forçado (Running)
+                    echo -e "${RD}VOCÊ VAI DELETAR A VM $ACTION PERMANENTEMENTE!${CL}"
+                    read -p "Digite 'CONFIRMAR': " SURE
+                    if [ "$SURE" == "CONFIRMAR" ]; then
+                        qm stop $ACTION >/dev/null 2>&1
+                        qm destroy $ACTION --purge
+                        echo "Deletada."
+                        sleep 1
+                    fi
+                    ;;
+                *) ;;
+            esac
+            sleep 1
         fi
     done
 }
 
-# --- MÓDULO 1: WINDOWS (UNIVERSAL) ---
-create_windows_vm() {
-    echo -e "${GN}--- CRIAR VM WINDOWS ---${CL}"
-    echo "1) Windows 11 Desktop (Standard)"
-    echo "2) Windows Server (2019/2022/2025)"
-    echo -e "${YW}3) Windows Gamer (GPU Passthrough + Tuning)${CL}"
-    echo "0) Voltar"
-    read -p "Opção: " WIN_TYPE
+# --- MÓDULOS DE CRIAÇÃO (Refatorados com Tags Fixas) ---
 
-    case $WIN_TYPE in
-        1) ISO_SEARCH="win11"; TAGS="vm,windows,amd64,desktop"; DESC="Desktop Standard"; GPU_MODE="off" ;;
-        2) ISO_SEARCH="server"; TAGS="vm,windows,amd64,server"; DESC="Windows Server"; GPU_MODE="off" ;;
-        3) ISO_SEARCH="win11"; TAGS="vm,windows,amd64,gpu"; DESC="Gamer (Passthrough)"; GPU_MODE="on" ;;
-        *) return ;;
-    esac
+create_gaming_vm() {
+    echo -e "${GN}--- WINDOWS GAMER ---${CL}"
+    TARGET_GPU=$(detect_gpu)
+    if [ $? -ne 0 ]; then echo "${RD}Sem GPU.${CL}"; read -p "Enter..."; return; fi
 
-    if [ "$GPU_MODE" == "on" ]; then
-        TARGET_GPU=$(detect_gpu)
-        if [ $? -ne 0 ]; then echo "${RD}Sem GPU Nvidia.${CL}"; read -p "Enter..."; return; fi
-        echo -e "${YW}GPU Detectada: $TARGET_GPU${CL}"
-    fi
+    read -p "ID: " VMID
+    read -p "Nome: " VMNAME
+    WIN_ISO=$(find_iso "win11"); VIRTIO_ISO=$(find_iso "virtio")
+    if [ -z "$WIN_ISO" ]; then read -p "Caminho ISO Windows: " WIN_ISO; fi
 
-    read -p "ID da VM: " VMID
-    if qm status "$VMID" >/dev/null 2>&1; then echo "Erro: ID existe."; sleep 1; return; fi
-    read -p "Nome da VM: " VMNAME
-    read -p "Cores (4): " CORES; [ -z "$CORES" ] && CORES=4
-    read -p "Memória MB (8192): " MEMORY; [ -z "$MEMORY" ] && MEMORY=8192
-    read -p "Tamanho Disco GB (64): " DISK_SIZE; [ -z "$DISK_SIZE" ] && DISK_SIZE=64
+    qm create "$VMID" --name "$VMNAME" --memory 32768 --cores 8 \
+        --machine q35 --bios ovmf --cpu host --numa 1 --net0 virtio,bridge="$DEFAULT_BRIDGE" --ostype win11 --scsihw virtio-scsi-pci
 
-    echo "Procurando ISOs..."
-    WIN_ISO=$(find_iso "$ISO_SEARCH")
-    VIRTIO_ISO=$(find_iso "virtio")
-
-    if [ -z "$WIN_ISO" ]; then 
-        echo -e "${RD}ISO contendo '$ISO_SEARCH' não encontrada.${CL}"
-        read -p "Cole o caminho completo da ISO: " WIN_ISO
-    else
-        echo -e "${GN}ISO Windows: $WIN_ISO${CL}"
-    fi
-
-    echo -e "${BL}>>> Criando VM ($DESC)...${CL}"
+    read -p "Disco (GB) [100]: " DSIZE; [ -z "$DSIZE" ] && DSIZE=100
+    qm set "$VMID" --balloon 0 --efidisk0 "$DEFAULT_STORAGE:0,efitype=4m" --tpmstate0 "$DEFAULT_STORAGE:0,version=v2.0" \
+        --scsi0 "$DEFAULT_STORAGE:${DSIZE},cache=writeback,discard=on"
     
-    qm create "$VMID" --name "$VMNAME" --memory "$MEMORY" --cores "$CORES" \
-        --machine q35 --bios ovmf --cpu host --numa 1 \
-        --net0 virtio,bridge="$DEFAULT_BRIDGE" --ostype win11 --scsihw virtio-scsi-pci
-
-    qm set "$VMID" --efidisk0 "$DEFAULT_STORAGE:0,efitype=4m" \
-        --tpmstate0 "$DEFAULT_STORAGE:0,version=v2.0" \
-        --scsi0 "$DEFAULT_STORAGE:${DISK_SIZE},cache=writeback,discard=on"
-
-    if [ -n "$WIN_ISO" ]; then qm set "$VMID" --ide2 "$WIN_ISO,media=cdrom"; fi
-    if [ -n "$VIRTIO_ISO" ]; then qm set "$VMID" --ide0 "$VIRTIO_ISO,media=cdrom"; fi
+    [ -n "$WIN_ISO" ] && qm set "$VMID" --ide2 "$WIN_ISO,media=cdrom"
+    [ -n "$VIRTIO_ISO" ] && qm set "$VMID" --ide0 "$VIRTIO_ISO,media=cdrom"
 
     qm set "$VMID" --boot order=ide2;scsi0
-
-    if [ "$GPU_MODE" == "on" ]; then
-        qm set "$VMID" --balloon 0
-        qm set "$VMID" --hostpci0 "$TARGET_GPU,pcie=1,x-vga=1,rombar=1"
-        qm set "$VMID" --vga none
-        echo -e "${YW}Aplicando CPU Pinning (P-Cores) para Gamer...${CL}"
-        qm set "$VMID" --affinity "0-15"
-    else
-        qm set "$VMID" --balloon 1024 
-        qm set "$VMID" --vga std
-        configure_cpu_affinity "$VMID"
-    fi
-
-    qm set "$VMID" --agent enabled=1
-    qm set "$VMID" --tags "$TAGS"
-
-    echo -e "${GN}VM Windows criada com sucesso!${CL}"
-    read -p "Enter..."
+    configure_cpu_affinity "$VMID"
+    
+    # Tags Estritas
+    qm set "$VMID" --hostpci0 "$TARGET_GPU,pcie=1,x-vga=1,rombar=1" --vga none --agent enabled=1 --tags "vm,amd64,windows"
+    echo -e "${GN}VM Criada!${CL}"; read -p "Enter..."
 }
 
-# --- MÓDULO 2: LINUX CLOUD (AUTO-INSTALL) ---
 create_cloud_vm() {
-    echo -e "${GN}--- LINUX CLOUD-INIT (Latest Versions) ---${CL}"
-    echo "1) Debian 13 Trixie (Stable)"
-    echo "2) Debian 12 Bookworm (OldStable)"
-    echo "3) Ubuntu 24.04 LTS"
-    echo "4) Ubuntu 25.10"
-    echo "5) Kali Linux (Rolling)"
-    echo "6) Fedora 43 Cloud"
-    echo "7) Arch Linux Cloud"
-    echo "8) CentOS Stream 9"
-    echo "9) Rocky Linux 9"
+    echo -e "${GN}--- LINUX CLOUD-INIT ---${CL}"
+    echo "1) Debian 13"
+    echo "2) Ubuntu 24.04"
+    echo "3) Kali Linux"
+    echo "4) Fedora 41"
+    echo "5) Arch Linux"
+    echo "6) CentOS 9"
+    echo "7) Rocky 9"
     echo "0) Voltar"
     read -p "Opção: " OPT
 
-    # Tags definidas aqui serão reordenadas na exibição, mas usamos o padrão já
-    TAGS="vm,amd64,linux"
+    TAGS="vm,amd64,linux" # Padrão
 
     case $OPT in
         1) URL="https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-amd64.qcow2"; IMG="deb13.qcow2" ;;
-        2) URL="https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"; IMG="deb12.qcow2" ;;
-        3) URL="https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"; IMG="ubu24-04.img" ;;
-        4) URL="https://cloud-images.ubuntu.com/releases/25.10/release/ubuntu-25.10-server-cloudimg-amd64.img"; IMG="ubu25-10.img" ;;
-        5) URL="https://kali.download/cloud-images/kali-rolling/kali-linux-rolling-cloud-generic-amd64.qcow2"; IMG="kali.qcow2" ;;
-        6) URL="https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic.x86_64-43-1.2.qcow2"; IMG="fedora.qcow2" ;;
-        7) URL="https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2"; IMG="arch.qcow2" ;;
-        8) URL="https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-9-latest.x86_64.qcow2"; IMG="centos9.qcow2" ;;
-        9) URL="https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base.latest.x86_64.qcow2"; IMG="rocky9.qcow2" ;;
+        2) URL="https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"; IMG="ubu24.img" ;;
+        3) URL="https://kali.download/cloud-images/kali-rolling/kali-linux-rolling-cloud-generic-amd64.qcow2"; IMG="kali.qcow2" ;;
+        4) URL="https://download.fedoraproject.org/pub/fedora/linux/releases/41/Cloud/x86_64/images/Fedora-Cloud-Base-Generic.x86_64-41-1.4.qcow2"; IMG="fedora.qcow2" ;;
+        5) URL="https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2"; IMG="arch.qcow2" ;;
+        6) URL="https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-9-latest.x86_64.qcow2"; IMG="centos9.qcow2" ;;
+        7) URL="https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base.latest.x86_64.qcow2"; IMG="rocky9.qcow2" ;;
         *) return ;;
     esac
 
     read -p "ID: " VMID
     read -p "Nome: " VMNAME
-    read -p "Cores (2): " CORES
-    read -p "RAM MB (2048): " RAM
     
-    [ -z "$CORES" ] && CORES=2
-    [ -z "$RAM" ] && RAM=2048
-
-    echo "Baixando imagem..."
     wget -q --show-progress "$URL" -O "$TEMP_DIR/$IMG"
-
-    qm create "$VMID" --name "$VMNAME" --memory "$RAM" --cores "$CORES" --cpu host --net0 virtio,bridge="$DEFAULT_BRIDGE"
+    qm create "$VMID" --name "$VMNAME" --memory 2048 --cores 2 --cpu host --net0 virtio,bridge="$DEFAULT_BRIDGE"
     qm importdisk "$VMID" "$TEMP_DIR/$IMG" "$DEFAULT_STORAGE"
-    qm set "$VMID" --scsihw virtio-scsi-pci --scsi0 "$DEFAULT_STORAGE:vm-$VMID-disk-0,discard=on"
-    qm set "$VMID" --ide2 "$DEFAULT_STORAGE:cloudinit" --boot c --bootdisk scsi0 --serial0 socket --vga serial0
-    qm set "$VMID" --ciuser "$DEFAULT_USER" --ipconfig0 ip=dhcp
+    qm set "$VMID" --scsihw virtio-scsi-pci --scsi0 "$DEFAULT_STORAGE:vm-$VMID-disk-0,discard=on" --ide2 "$DEFAULT_STORAGE:cloudinit" --boot c --bootdisk scsi0 --serial0 socket --vga serial0 --ciuser "$DEFAULT_USER" --ipconfig0 ip=dhcp
     qm set "$VMID" --tags "$TAGS"
 
-    read -p "Quanto espaço ADICIONAL (GB)? [Default 32]: " RESIZE_GB
-    [ -z "$RESIZE_GB" ] && RESIZE_GB=32
-    qm resize "$VMID" scsi0 "+${RESIZE_GB}G"
+    read -p "Espaço Adicional (GB) [32]: " ADD_GB; [ -z "$ADD_GB" ] && ADD_GB=32
+    qm resize "$VMID" scsi0 "+${ADD_GB}G"
     rm "$TEMP_DIR/$IMG"
 
     configure_cpu_affinity "$VMID"
-
-    echo -e "${GN}VM Cloud criada!${CL}"
-    read -p "Enter..."
+    echo -e "${GN}VM Criada!${CL}"; read -p "Enter..."
 }
 
-# --- MÓDULO 3: LINUX ISO ---
 create_iso_vm() {
     echo -e "${GN}--- LINUX MANUAL ISO ---${CL}"
-    echo "1) Linux Mint 22 (Wilma)"
-    echo "2) Kali Linux PURPLE (2025.x)"
-    echo "3) Manjaro Gnome (Latest)"
-    echo "4) Gentoo Minimal (Latest)"
+    echo "1) Linux Mint"
+    echo "2) Kali Purple"
+    echo "3) Manjaro"
+    echo "4) Gentoo"
     echo "0) Voltar"
     read -p "Opção: " OPT
 
     TAGS="vm,amd64,linux"
 
     case $OPT in
-        1) URL="https://mirrors.edge.kernel.org/linuxmint/stable/22/linuxmint-22-cinnamon-64bit.iso"; ISO="mint22.iso" ;;
-        2) URL="https://cdimage.kali.org/current/kali-linux-purple-installer-amd64.iso"; ISO="kali-purple.iso" ;;
-        3) URL="https://download.manjaro.org/gnome/24.1.0/manjaro-gnome-24.1.0-linux610.iso"; ISO="manjaro.iso" ;;
+        1) URL="https://mirrors.edge.kernel.org/linuxmint/stable/22/linuxmint-22-cinnamon-64bit.iso"; ISO="mint.iso" ;;
+        2) URL="https://cdimage.kali.org/current/kali-linux-purple-installer-amd64.iso"; ISO="kali.iso" ;;
+        3) URL="https://download.manjaro.org/gnome/24.0.6/manjaro-gnome-24.0.6-240729-linux69.iso"; ISO="manjaro.iso" ;;
         4) URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/current-install-amd64-minimal/install-amd64-minimal.iso"; ISO="gentoo.iso" ;;
         *) return ;;
     esac
 
-    ISO_PATH="$TEMP_DIR/$ISO"
-    if [ ! -f "$ISO_PATH" ]; then
-        echo "Baixando ISO..."
-        wget -q --show-progress "$URL" -O "$ISO_PATH"
-    fi
+    if [ ! -f "$TEMP_DIR/$ISO" ]; then wget -q --show-progress "$URL" -O "$TEMP_DIR/$ISO"; fi
 
     read -p "ID: " VMID
     read -p "Nome: " VMNAME
-    read -p "Tamanho do Disco (GB) [Default 32]: " DISK_SIZE
-    [ -z "$DISK_SIZE" ] && DISK_SIZE=32
-    
     qm create "$VMID" --name "$VMNAME" --memory 4096 --cores 4 --cpu host --net0 virtio,bridge="$DEFAULT_BRIDGE" --ostype l26
-    qm set "$VMID" --scsihw virtio-scsi-pci --scsi0 "$DEFAULT_STORAGE:${DISK_SIZE},cache=writeback,discard=on"
-    qm set "$VMID" --ide2 "$ISO_STORAGE:iso/$ISO,media=cdrom"
-    qm set "$VMID" --vga virtio --agent enabled=1
-    qm set "$VMID" --boot order=ide2;scsi0
+    
+    read -p "Disco (GB) [32]: " DSIZE; [ -z "$DSIZE" ] && DSIZE=32
+    qm set "$VMID" --scsihw virtio-scsi-pci --scsi0 "$DEFAULT_STORAGE:${DSIZE},cache=writeback,discard=on"
+    qm set "$VMID" --ide2 "$ISO_STORAGE:iso/$ISO,media=cdrom" --vga virtio --agent enabled=1 --boot order=ide2;scsi0
     qm set "$VMID" --tags "$TAGS"
 
     configure_cpu_affinity "$VMID"
+    echo -e "${GN}VM Criada!${CL}"; read -p "Enter..."
+}
 
-    echo -e "${GN}VM criada com ISO montada!${CL}"
-    read -p "Enter..."
+create_windows_general() {
+    echo -e "${GN}--- WINDOWS GERAL (Sem GPU) ---${CL}"
+    echo "1) Windows 11 Desktop"
+    echo "2) Windows Server"
+    read -p "Opção: " WOPT
+    
+    case $WOPT in
+        1) ISO="win11"; TAGS="vm,amd64,windows" ;;
+        2) ISO="server"; TAGS="vm,amd64,windows" ;;
+        *) return ;;
+    esac
+    
+    read -p "ID: " VMID
+    read -p "Nome: " VMNAME
+    WIN_ISO=$(find_iso "$ISO"); VIRTIO_ISO=$(find_iso "virtio")
+
+    qm create "$VMID" --name "$VMNAME" --memory 8192 --cores 4 --machine q35 --bios ovmf --cpu host --net0 virtio,bridge="$DEFAULT_BRIDGE" --ostype win11 --scsihw virtio-scsi-pci
+    qm set "$VMID" --efidisk0 "$DEFAULT_STORAGE:0,efitype=4m" --tpmstate0 "$DEFAULT_STORAGE:0,version=v2.0"
+    
+    read -p "Disco (GB) [64]: " DSIZE; [ -z "$DSIZE" ] && DSIZE=64
+    qm set "$VMID" --scsi0 "$DEFAULT_STORAGE:${DSIZE},cache=writeback,discard=on"
+    
+    [ -n "$WIN_ISO" ] && qm set "$VMID" --ide2 "$WIN_ISO,media=cdrom"
+    [ -n "$VIRTIO_ISO" ] && qm set "$VMID" --ide0 "$VIRTIO_ISO,media=cdrom"
+    
+    qm set "$VMID" --boot order=ide2;scsi0 --balloon 1024 --vga std --agent enabled=1 --tags "$TAGS"
+    
+    configure_cpu_affinity "$VMID"
+    echo -e "${GN}VM Criada!${CL}"; read -p "Enter..."
+}
+
+# --- MENU DE CRIAÇÃO (SUBMENU) ---
+submenu_create_vm() {
+    while true; do
+        clear
+        echo -e "${BL}--- CRIAR NOVA VM ---${CL}"
+        echo "1) Windows Gamer (GPU Passthrough)"
+        echo "2) Windows Geral (Desktop/Server)"
+        echo "3) Linux Cloud-Init (Automático)"
+        echo "4) Linux Manual (ISO)"
+        echo "0) Voltar"
+        echo ""
+        read -p "Opção: " SOPT
+        
+        case $SOPT in
+            1) create_gaming_vm ;;
+            2) create_windows_general ;;
+            3) create_cloud_vm ;;
+            4) create_iso_vm ;;
+            0) return ;;
+            *) echo "Opção inválida." ;;
+        esac
+    done
 }
 
 # --- MENU PRINCIPAL ---
-
 while true; do
     header
-    echo "1) Windows (Desktop / Server / Gamer)"
-    echo "2) Linux Cloud-Init (Server/Terminal)"
-    echo "3) Linux Manual ISO (Desktop/GUI)"
-    echo -e "${BL}4) Gerenciar VMs (Dashboard/Excluir)${CL}"
+    echo -e "1) ${GN}Listar e Gerenciar VMs (Dashboard)${CL}"
+    echo -e "2) ${YW}Criar Nova VM...${CL}"
     echo "0) Sair"
     echo ""
     read -p "Escolha: " OPTION
 
     case $OPTION in
-        1) create_windows_vm ;;
-        2) create_cloud_vm ;;
-        3) create_iso_vm ;;
-        4) manage_vms ;;
+        1) manage_vms ;;
+        2) submenu_create_vm ;;
         0) exit 0 ;;
         *) echo "Opção inválida." ;;
     esac
