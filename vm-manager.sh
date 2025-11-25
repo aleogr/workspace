@@ -1,9 +1,9 @@
 #!/bin/bash
 # ==============================================================================
-# PROXMOX VM MANAGER - ALEOGR (v5.1 - Strict Tags Fixed)
+# PROXMOX VM MANAGER - ALEOGR (v5.2 - Ordered Tags)
 # ==============================================================================
 # Gerenciamento de VMs.
-# Correção de Tags: Ordem estrita (Tipo > Arquitetura > Família).
+# Novidade v5.2: Visualização de tags forçada na ordem: Tipo > Arch > Família.
 # ==============================================================================
 
 # --- CONFIGURAÇÕES PADRÃO ---
@@ -30,7 +30,7 @@ header() {
  \_/\_/\____/(____) \___/  \___/ (__\_)
 EOF
     echo -e "${CL}"
-    echo -e "${YW}VM Manager v5.1 (Tags: Type, Arch, Family)${CL}"
+    echo -e "${YW}VM Manager v5.2 (Ordered Tags)${CL}"
     echo ""
 }
 
@@ -77,8 +77,11 @@ manage_vms() {
     while true; do
         header
         echo -e "${GN}--- DASHBOARD DE VMS ---${CL}"
-        printf "${YW}%-5s | %-20s | %-10s | %-5s | %-8s | %-10s | %-12s | %-20s${CL}\n" "ID" "NOME" "STATUS" "CPU" "RAM" "DISCO" "DISPLAY" "TAGS"
-        echo "----------------------------------------------------------------------------------------------------------------"
+        
+        # Cabeçalho ajustado
+        printf "${YW}%-6s | %-25s | %-10s | %-4s | %-8s | %-10s | %-40s${CL}\n" \
+            "ID" "NOME" "STATUS" "CPU" "RAM" "DISPLAY" "TAGS (Ord.)"
+        echo "------------------------------------------------------------------------------------------------------------------------"
 
         for vmid in $(qm list | awk 'NR>1 {print $1}' | sort -n); do
             CONF=$(qm config $vmid)
@@ -86,24 +89,47 @@ manage_vms() {
             STATUS=$(qm status $vmid | awk '{print $2}')
             CORES=$(echo "$CONF" | grep "^cores:" | awk '{print $2}')
             [ -z "$CORES" ] && CORES="1"
-            MEM=$(echo "$CONF" | grep "^memory:" | awk '{print $2}')
-            TAGS=$(echo "$CONF" | grep "^tags:" | cut -d: -f2 | tr -d ' ')
             
-            DISK_INFO=$(echo "$CONF" | grep -E "^(scsi0|ide0|virtio0):" | head -n 1)
-            DISK_SIZE=$(echo "$DISK_INFO" | grep -o "size=[^,]*" | cut -d= -f2)
-            [ -z "$DISK_SIZE" ] && DISK_SIZE="-"
+            MEM_MB=$(echo "$CONF" | grep "^memory:" | awk '{print $2}')
+            if [ "$MEM_MB" -ge 1024 ]; then
+                MEM=$(echo "scale=1; $MEM_MB/1024" | bc | awk '{print int($1+0.5)}')
+                MEM="${MEM}GB"
+            else
+                MEM="${MEM_MB}MB"
+            fi
 
-            if echo "$CONF" | grep -q "hostpci0"; then DISPLAY="GPU-Pass"; else
+            # --- LÓGICA DE ORDENAÇÃO DE TAGS ---
+            RAW_TAGS=$(echo "$CONF" | grep "^tags:" | cut -d: -f2 | tr -d ' ' | tr ',' ' ')
+            SORTED_TAGS=""
+            
+            # 1. Prioridade: Tipo (vm, container)
+            for t in $RAW_TAGS; do if [[ "$t" == "vm" || "$t" == "container" ]]; then SORTED_TAGS="$SORTED_TAGS $t"; fi; done
+            # 2. Prioridade: Arquitetura (amd64, arm64)
+            for t in $RAW_TAGS; do if [[ "$t" == "amd64" || "$t" == "arm64" ]]; then SORTED_TAGS="$SORTED_TAGS $t"; fi; done
+            # 3. Prioridade: Família (windows, linux, bsd)
+            for t in $RAW_TAGS; do if [[ "$t" == "windows" || "$t" == "linux" || "$t" == "bsd" ]]; then SORTED_TAGS="$SORTED_TAGS $t"; fi; done
+            # 4. Resto (gpu, desktop, server, etc)
+            for t in $RAW_TAGS; do 
+                if [[ "$t" != "vm" && "$t" != "container" && "$t" != "amd64" && "$t" != "arm64" && "$t" != "windows" && "$t" != "linux" && "$t" != "bsd" ]]; then 
+                    SORTED_TAGS="$SORTED_TAGS $t"
+                fi
+            done
+            
+            # Formata com vírgulas e remove espaço inicial
+            TAGS_DISPLAY=$(echo $SORTED_TAGS | tr ' ' ',')
+            # -----------------------------------
+
+            if echo "$CONF" | grep -q "hostpci0"; then DISPLAY="GPU"; else
                 DISPLAY=$(echo "$CONF" | grep "^vga:" | awk '{print $2}')
                 [ -z "$DISPLAY" ] && DISPLAY="Std"
             fi
 
             if [ "$STATUS" == "running" ]; then S_COLOR=$GN; else S_COLOR=$RD; fi
 
-            printf "%-5s | %-20s | ${S_COLOR}%-10s${CL} | %-5s | %-8s | %-10s | %-12s | %-20s\n" \
-                "$vmid" "${NAME:0:20}" "$STATUS" "$CORES" "${MEM}MB" "$DISK_SIZE" "$DISPLAY" "${TAGS:0:20}"
+            printf "%-6s | %-25s | ${S_COLOR}%-10s${CL} | %-4s | %-8s | %-10s | %-40s\n" \
+                "$vmid" "${NAME:0:25}" "$STATUS" "$CORES" "$MEM" "$DISPLAY" "${TAGS_DISPLAY:0:40}"
         done
-        echo "----------------------------------------------------------------------------------------------------------------"
+        echo "------------------------------------------------------------------------------------------------------------------------"
         echo ""
         echo -e "${YW}Ações:${CL}"
         echo "Digite o ID da VM para [EXCLUIR]"
@@ -148,17 +174,13 @@ create_windows_vm() {
     echo "0) Voltar"
     read -p "Opção: " WIN_TYPE
 
-    # TAGS LIMPAS: vm, amd64, windows
-    FIXED_TAGS="vm,amd64,windows"
-
     case $WIN_TYPE in
-        1) ISO_SEARCH="win11"; DESC="Desktop Standard"; GPU_MODE="off" ;;
-        2) ISO_SEARCH="server"; DESC="Windows Server"; GPU_MODE="off" ;;
-        3) ISO_SEARCH="win11"; DESC="Gamer (Passthrough)"; GPU_MODE="on" ;;
+        1) ISO_SEARCH="win11"; TAGS="vm,windows,amd64,desktop"; DESC="Desktop Standard"; GPU_MODE="off" ;;
+        2) ISO_SEARCH="server"; TAGS="vm,windows,amd64,server"; DESC="Windows Server"; GPU_MODE="off" ;;
+        3) ISO_SEARCH="win11"; TAGS="vm,windows,amd64,gpu"; DESC="Gamer (Passthrough)"; GPU_MODE="on" ;;
         *) return ;;
     esac
 
-    # Pré-check de GPU se for Gamer
     if [ "$GPU_MODE" == "on" ]; then
         TARGET_GPU=$(detect_gpu)
         if [ $? -ne 0 ]; then echo "${RD}Sem GPU Nvidia.${CL}"; read -p "Enter..."; return; fi
@@ -211,7 +233,7 @@ create_windows_vm() {
     fi
 
     qm set "$VMID" --agent enabled=1
-    qm set "$VMID" --tags "$FIXED_TAGS"
+    qm set "$VMID" --tags "$TAGS"
 
     echo -e "${GN}VM Windows criada com sucesso!${CL}"
     read -p "Enter..."
@@ -219,12 +241,12 @@ create_windows_vm() {
 
 # --- MÓDULO 2: LINUX CLOUD (AUTO-INSTALL) ---
 create_cloud_vm() {
-    echo -e "${GN}--- LINUX CLOUD-INIT ---${CL}"
-    echo "1) Debian 13 Trixie"
-    echo "2) Debian 12 Bookworm"
+    echo -e "${GN}--- LINUX CLOUD-INIT (Latest Versions) ---${CL}"
+    echo "1) Debian 13 Trixie (Stable)"
+    echo "2) Debian 12 Bookworm (OldStable)"
     echo "3) Ubuntu 24.04 LTS"
     echo "4) Ubuntu 25.10"
-    echo "5) Kali Linux"
+    echo "5) Kali Linux (Rolling)"
     echo "6) Fedora 43 Cloud"
     echo "7) Arch Linux Cloud"
     echo "8) CentOS Stream 9"
@@ -232,7 +254,7 @@ create_cloud_vm() {
     echo "0) Voltar"
     read -p "Opção: " OPT
 
-    # TAGS PADRONIZADAS: vm, amd64, linux
+    # Tags definidas aqui serão reordenadas na exibição, mas usamos o padrão já
     TAGS="vm,amd64,linux"
 
     case $OPT in
@@ -273,17 +295,17 @@ create_cloud_vm() {
 
     configure_cpu_affinity "$VMID"
 
-    echo -e "${GN}VM Cloud criada! (User: $DEFAULT_USER / Sem senha - Use Console)${CL}"
+    echo -e "${GN}VM Cloud criada!${CL}"
     read -p "Enter..."
 }
 
 # --- MÓDULO 3: LINUX ISO ---
 create_iso_vm() {
     echo -e "${GN}--- LINUX MANUAL ISO ---${CL}"
-    echo "1) Linux Mint 22"
-    echo "2) Kali Linux PURPLE"
-    echo "3) Manjaro Gnome"
-    echo "4) Gentoo Minimal"
+    echo "1) Linux Mint 22 (Wilma)"
+    echo "2) Kali Linux PURPLE (2025.x)"
+    echo "3) Manjaro Gnome (Latest)"
+    echo "4) Gentoo Minimal (Latest)"
     echo "0) Voltar"
     read -p "Opção: " OPT
 
@@ -305,12 +327,10 @@ create_iso_vm() {
 
     read -p "ID: " VMID
     read -p "Nome: " VMNAME
-    
-    qm create "$VMID" --name "$VMNAME" --memory 4096 --cores 4 --cpu host --net0 virtio,bridge="$DEFAULT_BRIDGE" --ostype l26
-    
     read -p "Tamanho do Disco (GB) [Default 32]: " DISK_SIZE
     [ -z "$DISK_SIZE" ] && DISK_SIZE=32
     
+    qm create "$VMID" --name "$VMNAME" --memory 4096 --cores 4 --cpu host --net0 virtio,bridge="$DEFAULT_BRIDGE" --ostype l26
     qm set "$VMID" --scsihw virtio-scsi-pci --scsi0 "$DEFAULT_STORAGE:${DISK_SIZE},cache=writeback,discard=on"
     qm set "$VMID" --ide2 "$ISO_STORAGE:iso/$ISO,media=cdrom"
     qm set "$VMID" --vga virtio --agent enabled=1
