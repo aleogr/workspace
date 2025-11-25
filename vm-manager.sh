@@ -1,9 +1,9 @@
 #!/bin/bash
 # ==============================================================================
-# PROXMOX VM MANAGER - ALEOGR (v4.8 - Multi-Arch Tags)
+# PROXMOX VM MANAGER - ALEOGR (v5.0 - Boot Order Fix)
 # ==============================================================================
-# Gerenciamento de VMs com suporte a Múltiplos SOs, Cloud-Init e GPU.
-# Tags Dinâmicas: Identifica corretamente amd64 vs arm64.
+# Gerenciamento de VMs com controle de disco e prioridade de BOOT.
+# Garante que instalações via ISO iniciem pelo CD-ROM automaticamente.
 # ==============================================================================
 
 # --- CONFIGURAÇÕES PADRÃO ---
@@ -30,7 +30,7 @@ header() {
  \_/\_/\____/(____) \___/  \___/ (__\_)
 EOF
     echo -e "${CL}"
-    echo -e "${YW}VM Manager v4.8 (Dynamic Tags)${CL}"
+    echo -e "${YW}VM Manager v5.0 (Boot Priority)${CL}"
     echo ""
 }
 
@@ -77,8 +77,7 @@ manage_vms() {
     while true; do
         header
         echo -e "${GN}--- DASHBOARD DE VMS ---${CL}"
-        # Ajustado layout para caber tags maiores
-        printf "${YW}%-5s | %-18s | %-8s | %-4s | %-8s | %-12s | %-25s${CL}\n" "ID" "NOME" "STATUS" "CPU" "RAM" "DISPLAY" "TAGS"
+        printf "${YW}%-5s | %-18s | %-8s | %-4s | %-8s | %-12s | %-25s${CL}\n" "ID" "NOME" "STATUS" "CPU" "RAM" "DISCO" "DISPLAY" "TAGS"
         echo "--------------------------------------------------------------------------------------------"
 
         for vmid in $(qm list | awk 'NR>1 {print $1}' | sort -n); do
@@ -90,6 +89,10 @@ manage_vms() {
             MEM=$(echo "$CONF" | grep "^memory:" | awk '{print $2}')
             TAGS=$(echo "$CONF" | grep "^tags:" | cut -d: -f2 | tr -d ' ')
             
+            DISK_INFO=$(echo "$CONF" | grep -E "^(scsi0|ide0|virtio0):" | head -n 1)
+            DISK_SIZE=$(echo "$DISK_INFO" | grep -o "size=[^,]*" | cut -d= -f2)
+            [ -z "$DISK_SIZE" ] && DISK_SIZE="-"
+
             if echo "$CONF" | grep -q "hostpci0"; then DISPLAY="GPU"; else
                 DISPLAY=$(echo "$CONF" | grep "^vga:" | awk '{print $2}')
                 [ -z "$DISPLAY" ] && DISPLAY="Std"
@@ -98,7 +101,7 @@ manage_vms() {
             if [ "$STATUS" == "running" ]; then S_COLOR=$GN; else S_COLOR=$RD; fi
 
             printf "%-5s | %-18s | ${S_COLOR}%-8s${CL} | %-4s | %-8s | %-12s | %-25s\n" \
-                "$vmid" "${NAME:0:18}" "$STATUS" "$CORES" "${MEM}MB" "$DISPLAY" "${TAGS:0:25}"
+                "$vmid" "${NAME:0:18}" "$STATUS" "$CORES" "${MEM}MB" "$DISK_SIZE" "$DISPLAY" "${TAGS:0:25}"
         done
         echo "--------------------------------------------------------------------------------------------"
         echo ""
@@ -155,16 +158,24 @@ create_gaming_vm() {
         --machine q35 --bios ovmf --cpu host --numa 1 \
         --net0 virtio,bridge="$DEFAULT_BRIDGE" --ostype win11 --scsihw virtio-scsi-pci
 
+    read -p "Tamanho do Disco (GB) [Default 100]: " DISK_SIZE
+    [ -z "$DISK_SIZE" ] && DISK_SIZE=100
+
     qm set "$VMID" --balloon 0 --efidisk0 "$DEFAULT_STORAGE:0,efitype=4m" \
         --tpmstate0 "$DEFAULT_STORAGE:0,version=v2.0" \
-        --scsi0 "$DEFAULT_STORAGE:100,cache=writeback,discard=on"
+        --scsi0 "$DEFAULT_STORAGE:${DISK_SIZE},cache=writeback,discard=on"
     
     if [ -n "$WIN_ISO" ]; then qm set "$VMID" --ide2 "$WIN_ISO,media=cdrom"; fi
     if [ -n "$VIRTIO_ISO" ]; then qm set "$VMID" --ide0 "$VIRTIO_ISO,media=cdrom"; fi
 
+    # ATUALIZADO: Boot Order (Windows ISO first)
+    if [ -n "$WIN_ISO" ]; then
+        echo "Configurando Boot Order: CD-ROM Primeiro..."
+        qm set "$VMID" --boot order=ide2;scsi0
+    fi
+
     configure_cpu_affinity "$VMID"
     
-    # Tags Windows
     qm set "$VMID" --hostpci0 "$TARGET_GPU,pcie=1,x-vga=1,rombar=1" \
         --vga none --agent enabled=1 \
         --tags "vm,windows,amd64,gpu"
@@ -175,67 +186,59 @@ create_gaming_vm() {
 
 # --- MÓDULO 2: LINUX CLOUD (AUTO-INSTALL) ---
 create_cloud_vm() {
-    echo -e "${GN}--- LINUX CLOUD-INIT ---${CL}"
+    echo -e "${GN}--- LINUX CLOUD-INIT (Latest Versions) ---${CL}"
     echo "1) Debian 13 Trixie (Stable)"
-    echo "2) Ubuntu 24.04 LTS (Noble)"
-    echo "3) Kali Linux (2024.3)"
-    echo "4) Fedora 43 Cloud"
-    echo "5) Arch Linux Cloud"
-    echo "6) CentOS Stream 9"
-    echo "7) Rocky Linux 9"
-    echo -e "${YW}8) Debian 13 ARM64 (Emulado - Lento)${CL}"
-    echo -e "${YW}9) Ubuntu 24.04 ARM64 (Emulado - Lento)${CL}"
+    echo "2) Debian 12 Bookworm (OldStable)"
+    echo "3) Ubuntu 24.04 LTS"
+    echo "4) Ubuntu 25.10"
+    echo "5) Kali Linux (Rolling)"
+    echo "6) Fedora 43 Cloud"
+    echo "7) Arch Linux Cloud"
+    echo "8) CentOS Stream 9"
+    echo "9) Rocky Linux 9"
     echo "0) Voltar"
     read -p "Opção: " OPT
 
-    # Definição de Variáveis baseada na escolha
+    TAGS="vm,linux,amd64"
+
     case $OPT in
-        1) URL="https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-amd64.qcow2"; IMG="deb13.qcow2"; ARCH="amd64"; FAMILY="linux" ;;
-        2) URL="https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"; IMG="ubu24.img"; ARCH="amd64"; FAMILY="linux" ;;
-        3) URL="https://kali.download/cloud-images/kali-rolling/kali-linux-rolling-cloud-generic-amd64.qcow2"; IMG="kali.qcow2"; ARCH="amd64"; FAMILY="linux" ;;
-        4) URL="https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic.x86_64-43-1.2.qcow2"; IMG="fedora.qcow2"; ARCH="amd64"; FAMILY="linux" ;;
-        5) URL="https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2"; IMG="arch.qcow2"; ARCH="amd64"; FAMILY="linux" ;;
-        6) URL="https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-9-latest.x86_64.qcow2"; IMG="centos9.qcow2"; ARCH="amd64"; FAMILY="linux" ;;
-        7) URL="https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base.latest.x86_64.qcow2"; IMG="rocky9.qcow2"; ARCH="amd64"; FAMILY="linux" ;;
-        # Opções ARM64
-        8) URL="https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-arm64.qcow2"; IMG="deb13-arm.qcow2"; ARCH="arm64"; FAMILY="linux" ;;
-        9) URL="https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-arm64.img"; IMG="ubu24-arm.img"; ARCH="arm64"; FAMILY="linux" ;;
+        1) URL="https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-amd64.qcow2"; IMG="deb13.qcow2" ;;
+        2) URL="https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"; IMG="deb12.qcow2" ;;
+        3) URL="https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"; IMG="ubu24-04.img" ;;
+        4) URL="https://cloud-images.ubuntu.com/releases/25.10/release/ubuntu-25.10-server-cloudimg-amd64.img"; IMG="ubu25-10.img" ;;
+        5) URL="https://kali.download/cloud-images/kali-rolling/kali-linux-rolling-cloud-generic-amd64.qcow2"; IMG="kali.qcow2" ;;
+        6) URL="https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic.x86_64-43-1.2.qcow2"; IMG="fedora.qcow2" ;;
+        7) URL="https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2"; IMG="arch.qcow2" ;;
+        8) URL="https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-9-latest.x86_64.qcow2"; IMG="centos9.qcow2" ;;
+        9) URL="https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base.latest.x86_64.qcow2"; IMG="rocky9.qcow2" ;;
         *) return ;;
     esac
 
     read -p "ID: " VMID
     read -p "Nome: " VMNAME
-    read -p "Cores (2): " CORES; [ -z "$CORES" ] && CORES=2
-    read -p "RAM MB (2048): " RAM; [ -z "$RAM" ] && RAM=2048
+    read -p "Cores (2): " CORES
+    read -p "RAM MB (2048): " RAM
     
+    [ -z "$CORES" ] && CORES=2
+    [ -z "$RAM" ] && RAM=2048
+
     echo "Baixando imagem..."
     wget -q --show-progress "$URL" -O "$TEMP_DIR/$IMG"
 
-    # Lógica de Criação Adaptativa (x86 vs ARM)
-    if [ "$ARCH" == "arm64" ]; then
-        echo -e "${YW}Criando VM ARM64 (Emulação)...${CL}"
-        # ARM precisa de BIOS OVMF, Machine Virt e Serial Console
-        qm create "$VMID" --name "$VMNAME" --memory "$RAM" --cores "$CORES" --net0 virtio,bridge="$DEFAULT_BRIDGE" \
-            --arch aarch64 --bios ovmf --machine virt --cpu host
-    else
-        echo "Criando VM x86_64..."
-        qm create "$VMID" --name "$VMNAME" --memory "$RAM" --cores "$CORES" --cpu host --net0 virtio,bridge="$DEFAULT_BRIDGE"
-    fi
-
+    qm create "$VMID" --name "$VMNAME" --memory "$RAM" --cores "$CORES" --cpu host --net0 virtio,bridge="$DEFAULT_BRIDGE"
     qm importdisk "$VMID" "$TEMP_DIR/$IMG" "$DEFAULT_STORAGE"
     qm set "$VMID" --scsihw virtio-scsi-pci --scsi0 "$DEFAULT_STORAGE:vm-$VMID-disk-0,discard=on"
     
-    # Cloud-Init e Boot
-    qm set "$VMID" --ide2 "$DEFAULT_STORAGE:cloudinit" 
-    qm set "$VMID" --boot c --bootdisk scsi0 
-    qm set "$VMID" --serial0 socket --vga serial0
+    # Cloud-Init: Boot padrão é pelo disco (c), pois a imagem já é o SO instalado
+    qm set "$VMID" --ide2 "$DEFAULT_STORAGE:cloudinit" --boot c --bootdisk scsi0 --serial0 socket --vga serial0
     qm set "$VMID" --ciuser "$DEFAULT_USER" --ipconfig0 ip=dhcp
-    
-    # Aplica as Tags Dinâmicas (vm, linux, amd64/arm64)
-    qm set "$VMID" --tags "vm,${FAMILY},${ARCH}"
+    qm set "$VMID" --tags "$TAGS"
 
-    echo "Expandindo disco (+32G)..."
-    qm resize "$VMID" scsi0 "+32G"
+    read -p "Quanto espaço ADICIONAL (GB)? [Default 32]: " RESIZE_GB
+    [ -z "$RESIZE_GB" ] && RESIZE_GB=32
+    echo "Expandindo disco (+${RESIZE_GB}G)..."
+    qm resize "$VMID" scsi0 "+${RESIZE_GB}G"
+    
     rm "$TEMP_DIR/$IMG"
 
     configure_cpu_affinity "$VMID"
@@ -248,21 +251,19 @@ create_cloud_vm() {
 create_iso_vm() {
     echo -e "${GN}--- LINUX MANUAL ISO ---${CL}"
     echo "1) Linux Mint 22 (Wilma)"
-    echo "2) Kali Linux PURPLE (2024.3)"
+    echo "2) Kali Linux PURPLE (2025.x)"
     echo "3) Manjaro Gnome (Latest)"
     echo "4) Gentoo Minimal (Latest)"
     echo "0) Voltar"
     read -p "Opção: " OPT
 
-    # Tags Padrão para ISO
-    ARCH="amd64"
-    FAMILY="linux"
+    TAGS="vm,linux,amd64"
 
     case $OPT in
         1) URL="https://mirrors.edge.kernel.org/linuxmint/stable/22/linuxmint-22-cinnamon-64bit.iso"; ISO="mint22.iso" ;;
-        2) URL="https://cdimage.kali.org/kali-2024.3/kali-linux-2024.3-purple-installer-amd64.iso"; ISO="kali-purple.iso" ;;
-        3) URL="https://download.manjaro.org/gnome/24.0.6/manjaro-gnome-24.0.6-240729-linux69.iso"; ISO="manjaro.iso" ;;
-        4) URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/20241124T170335Z/install-amd64-minimal-20241124T170335Z.iso"; ISO="gentoo.iso" ;;
+        2) URL="https://cdimage.kali.org/current/kali-linux-purple-installer-amd64.iso"; ISO="kali-purple.iso" ;;
+        3) URL="https://download.manjaro.org/gnome/24.1.0/manjaro-gnome-24.1.0-linux610.iso"; ISO="manjaro.iso" ;;
+        4) URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/current-install-amd64-minimal/install-amd64-minimal.iso"; ISO="gentoo.iso" ;;
         *) return ;;
     esac
 
@@ -276,15 +277,22 @@ create_iso_vm() {
     read -p "Nome: " VMNAME
     
     qm create "$VMID" --name "$VMNAME" --memory 4096 --cores 4 --cpu host --net0 virtio,bridge="$DEFAULT_BRIDGE" --ostype l26
-    qm set "$VMID" --scsihw virtio-scsi-pci --scsi0 "$DEFAULT_STORAGE:64,cache=writeback,discard=on"
+    
+    read -p "Tamanho do Disco (GB) [Default 32]: " DISK_SIZE
+    [ -z "$DISK_SIZE" ] && DISK_SIZE=32
+    
+    qm set "$VMID" --scsihw virtio-scsi-pci --scsi0 "$DEFAULT_STORAGE:${DISK_SIZE},cache=writeback,discard=on"
     qm set "$VMID" --ide2 "$ISO_STORAGE:iso/$ISO,media=cdrom"
     qm set "$VMID" --vga virtio --agent enabled=1
     
-    qm set "$VMID" --tags "vm,${FAMILY},${ARCH}"
+    # ATUALIZADO: Boot Order (CD-ROM Primeiro)
+    qm set "$VMID" --boot order=ide2;scsi0
+    
+    qm set "$VMID" --tags "$TAGS"
 
     configure_cpu_affinity "$VMID"
 
-    echo -e "${GN}VM criada com ISO montada!${CL}"
+    echo -e "${GN}VM criada com ISO montada (Boot: CD-ROM)!${CL}"
     read -p "Enter..."
 }
 
@@ -292,8 +300,8 @@ create_iso_vm() {
 
 while true; do
     header
-    echo "1) Linux Cloud-Init (Multi-Arch)"
-    echo "2) Linux Manual ISO (Mint, Gentoo)"
+    echo "1) Linux Cloud-Init (Debian 13, Ubuntu 25, etc)"
+    echo "2) Linux Manual ISO (Mint, Manjaro, Gentoo)"
     echo -e "${YW}3) Windows 11 Gamer (GPU Passthrough)${CL}"
     echo -e "${BL}4) Gerenciar VMs (Dashboard/Excluir)${CL}"
     echo "0) Sair"
