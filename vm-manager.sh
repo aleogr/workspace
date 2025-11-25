@@ -1,9 +1,9 @@
 #!/bin/bash
 # ==============================================================================
-# PROXMOX VM MANAGER - ALEOGR (v5.0 - Windows Universal)
+# PROXMOX VM MANAGER - ALEOGR (v5.1 - Strict Tags Fixed)
 # ==============================================================================
-# Gerenciamento de VMs Linux (Cloud/ISO) e Windows (Desktop/Server/Gamer).
-# Organização modular e suporte a múltiplos perfis de Windows.
+# Gerenciamento de VMs.
+# Correção de Tags: Ordem estrita (Tipo > Arquitetura > Família).
 # ==============================================================================
 
 # --- CONFIGURAÇÕES PADRÃO ---
@@ -30,7 +30,7 @@ header() {
  \_/\_/\____/(____) \___/  \___/ (__\_)
 EOF
     echo -e "${CL}"
-    echo -e "${YW}VM Manager v5.0 (Universal Windows)${CL}"
+    echo -e "${YW}VM Manager v5.1 (Tags: Type, Arch, Family)${CL}"
     echo ""
 }
 
@@ -148,10 +148,13 @@ create_windows_vm() {
     echo "0) Voltar"
     read -p "Opção: " WIN_TYPE
 
+    # TAGS LIMPAS: vm, amd64, windows
+    FIXED_TAGS="vm,amd64,windows"
+
     case $WIN_TYPE in
-        1) ISO_SEARCH="win11"; TAGS="vm,windows,amd64,desktop"; DESC="Desktop Standard"; GPU_MODE="off" ;;
-        2) ISO_SEARCH="server"; TAGS="vm,windows,amd64,server"; DESC="Windows Server"; GPU_MODE="off" ;;
-        3) ISO_SEARCH="win11"; TAGS="vm,windows,amd64,gpu"; DESC="Gamer (Passthrough)"; GPU_MODE="on" ;;
+        1) ISO_SEARCH="win11"; DESC="Desktop Standard"; GPU_MODE="off" ;;
+        2) ISO_SEARCH="server"; DESC="Windows Server"; GPU_MODE="off" ;;
+        3) ISO_SEARCH="win11"; DESC="Gamer (Passthrough)"; GPU_MODE="on" ;;
         *) return ;;
     esac
 
@@ -182,48 +185,33 @@ create_windows_vm() {
 
     echo -e "${BL}>>> Criando VM ($DESC)...${CL}"
     
-    # Configuração Base (Comum a todos os Windows modernos)
-    # ostype win11 serve para Server 2022+ também para otimizações
     qm create "$VMID" --name "$VMNAME" --memory "$MEMORY" --cores "$CORES" \
         --machine q35 --bios ovmf --cpu host --numa 1 \
         --net0 virtio,bridge="$DEFAULT_BRIDGE" --ostype win11 --scsihw virtio-scsi-pci
 
-    # Discos EFI/TPM/Dados
     qm set "$VMID" --efidisk0 "$DEFAULT_STORAGE:0,efitype=4m" \
         --tpmstate0 "$DEFAULT_STORAGE:0,version=v2.0" \
         --scsi0 "$DEFAULT_STORAGE:${DISK_SIZE},cache=writeback,discard=on"
 
-    # ISOs
     if [ -n "$WIN_ISO" ]; then qm set "$VMID" --ide2 "$WIN_ISO,media=cdrom"; fi
     if [ -n "$VIRTIO_ISO" ]; then qm set "$VMID" --ide0 "$VIRTIO_ISO,media=cdrom"; fi
 
-    # Boot Order
     qm set "$VMID" --boot order=ide2;scsi0
 
-    # --- DIFERENCIAÇÃO POR TIPO ---
     if [ "$GPU_MODE" == "on" ]; then
-        # Configurações GAMER
         qm set "$VMID" --balloon 0
         qm set "$VMID" --hostpci0 "$TARGET_GPU,pcie=1,x-vga=1,rombar=1"
         qm set "$VMID" --vga none
-        
-        # Gamer geralmente quer P-Cores
         echo -e "${YW}Aplicando CPU Pinning (P-Cores) para Gamer...${CL}"
         qm set "$VMID" --affinity "0-15"
     else
-        # Configurações SERVER/DESKTOP
-        # Ballooning permitido (economiza RAM no host)
         qm set "$VMID" --balloon 1024 
-        # VGA padrão para ver console no navegador
         qm set "$VMID" --vga std
-        
-        # Pergunta sobre afinidade (Opcional)
         configure_cpu_affinity "$VMID"
     fi
 
-    # Finalização comum
     qm set "$VMID" --agent enabled=1
-    qm set "$VMID" --tags "$TAGS"
+    qm set "$VMID" --tags "$FIXED_TAGS"
 
     echo -e "${GN}VM Windows criada com sucesso!${CL}"
     read -p "Enter..."
@@ -232,11 +220,11 @@ create_windows_vm() {
 # --- MÓDULO 2: LINUX CLOUD (AUTO-INSTALL) ---
 create_cloud_vm() {
     echo -e "${GN}--- LINUX CLOUD-INIT ---${CL}"
-    echo "1) Debian 13 Trixie (Stable)"
-    echo "2) Debian 12 Bookworm (OldStable)"
+    echo "1) Debian 13 Trixie"
+    echo "2) Debian 12 Bookworm"
     echo "3) Ubuntu 24.04 LTS"
     echo "4) Ubuntu 25.10"
-    echo "5) Kali Linux (Rolling)"
+    echo "5) Kali Linux"
     echo "6) Fedora 43 Cloud"
     echo "7) Arch Linux Cloud"
     echo "8) CentOS Stream 9"
@@ -244,7 +232,8 @@ create_cloud_vm() {
     echo "0) Voltar"
     read -p "Opção: " OPT
 
-    TAGS="vm,linux,amd64"
+    # TAGS PADRONIZADAS: vm, amd64, linux
+    TAGS="vm,amd64,linux"
 
     case $OPT in
         1) URL="https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-amd64.qcow2"; IMG="deb13.qcow2" ;;
@@ -261,9 +250,12 @@ create_cloud_vm() {
 
     read -p "ID: " VMID
     read -p "Nome: " VMNAME
-    read -p "Cores (2): " CORES; [ -z "$CORES" ] && CORES=2
-    read -p "RAM MB (2048): " RAM; [ -z "$RAM" ] && RAM=2048
+    read -p "Cores (2): " CORES
+    read -p "RAM MB (2048): " RAM
     
+    [ -z "$CORES" ] && CORES=2
+    [ -z "$RAM" ] && RAM=2048
+
     echo "Baixando imagem..."
     wget -q --show-progress "$URL" -O "$TEMP_DIR/$IMG"
 
@@ -281,7 +273,7 @@ create_cloud_vm() {
 
     configure_cpu_affinity "$VMID"
 
-    echo -e "${GN}VM Cloud criada!${CL}"
+    echo -e "${GN}VM Cloud criada! (User: $DEFAULT_USER / Sem senha - Use Console)${CL}"
     read -p "Enter..."
 }
 
@@ -295,12 +287,12 @@ create_iso_vm() {
     echo "0) Voltar"
     read -p "Opção: " OPT
 
-    TAGS="vm,linux,amd64"
+    TAGS="vm,amd64,linux"
 
     case $OPT in
         1) URL="https://mirrors.edge.kernel.org/linuxmint/stable/22/linuxmint-22-cinnamon-64bit.iso"; ISO="mint22.iso" ;;
         2) URL="https://cdimage.kali.org/current/kali-linux-purple-installer-amd64.iso"; ISO="kali-purple.iso" ;;
-        3) URL="https://download.manjaro.org/gnome/24.0.6/manjaro-gnome-24.0.6-240729-linux69.iso"; ISO="manjaro.iso" ;;
+        3) URL="https://download.manjaro.org/gnome/24.1.0/manjaro-gnome-24.1.0-linux610.iso"; ISO="manjaro.iso" ;;
         4) URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/current-install-amd64-minimal/install-amd64-minimal.iso"; ISO="gentoo.iso" ;;
         *) return ;;
     esac
@@ -313,10 +305,12 @@ create_iso_vm() {
 
     read -p "ID: " VMID
     read -p "Nome: " VMNAME
+    
+    qm create "$VMID" --name "$VMNAME" --memory 4096 --cores 4 --cpu host --net0 virtio,bridge="$DEFAULT_BRIDGE" --ostype l26
+    
     read -p "Tamanho do Disco (GB) [Default 32]: " DISK_SIZE
     [ -z "$DISK_SIZE" ] && DISK_SIZE=32
     
-    qm create "$VMID" --name "$VMNAME" --memory 4096 --cores 4 --cpu host --net0 virtio,bridge="$DEFAULT_BRIDGE" --ostype l26
     qm set "$VMID" --scsihw virtio-scsi-pci --scsi0 "$DEFAULT_STORAGE:${DISK_SIZE},cache=writeback,discard=on"
     qm set "$VMID" --ide2 "$ISO_STORAGE:iso/$ISO,media=cdrom"
     qm set "$VMID" --vga virtio --agent enabled=1
