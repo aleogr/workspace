@@ -1,8 +1,9 @@
 #!/bin/bash
 # ==============================================================================
-# PROXMOX VM MANAGER - ALEOGR (v4.0 - OS Collection)
+# PROXMOX VM MANAGER - ALEOGR (v4.5 - Timeline Corrected)
 # ==============================================================================
-# Gerenciamento de VMs com suporte a Múltiplos SOs, Cloud-Init e GPU.
+# Gerenciamento de VMs com versões atualizadas para o cenário de 2025.
+# Debian 13 Stable, Ubuntu 25.10, etc.
 # ==============================================================================
 
 # --- CONFIGURAÇÕES PADRÃO ---
@@ -29,7 +30,7 @@ header() {
  \_/\_/\____/(____) \___/  \___/ (__\_)
 EOF
     echo -e "${CL}"
-    echo -e "${YW}VM Manager v4.0 (Multi-OS Edition)${CL}"
+    echo -e "${YW}VM Manager v4.5 (2025 Edition)${CL}"
     echo ""
 }
 
@@ -38,7 +39,6 @@ EOF
 detect_gpu() {
     GPU_RAW=$(lspci -nn | grep -i "NVIDIA" | grep -i "VGA" | head -n 1 | awk '{print $1}')
     if [ -z "$GPU_RAW" ]; then
-        echo "Nenhuma GPU NVIDIA detectada."
         return 1
     else
         SHORT_ID=$(echo "$GPU_RAW" | cut -d. -f1)
@@ -72,32 +72,71 @@ configure_cpu_affinity() {
     esac
 }
 
-list_vms() {
-    echo -e "${GN}--- LISTA DE VMS ---${CL}"
-    qm list
-    echo ""
-    read -p "Enter para voltar..."
-}
+# --- DASHBOARD ---
+manage_vms() {
+    while true; do
+        header
+        echo -e "${GN}--- DASHBOARD DE VMS ---${CL}"
+        printf "${YW}%-5s | %-20s | %-10s | %-5s | %-8s | %-10s | %-12s | %-20s${CL}\n" "ID" "NOME" "STATUS" "CPU" "RAM" "DISCO" "DISPLAY" "TAGS"
+        echo "----------------------------------------------------------------------------------------------------------------"
 
-delete_vm() {
-    echo -e "${RD}--- EXCLUIR VM ---${CL}"
-    read -p "ID da VM: " VMID
-    if [ -z "$VMID" ]; then return; fi
-    
-    VMNAME=$(qm config "$VMID" 2>/dev/null | grep name | awk '{print $2}')
-    if [ -z "$VMNAME" ]; then echo "VM não encontrada."; sleep 1; return; fi
+        for vmid in $(qm list | awk 'NR>1 {print $1}' | sort -n); do
+            CONF=$(qm config $vmid)
+            NAME=$(echo "$CONF" | grep "^name:" | awk '{print $2}')
+            STATUS=$(qm status $vmid | awk '{print $2}')
+            CORES=$(echo "$CONF" | grep "^cores:" | awk '{print $2}')
+            [ -z "$CORES" ] && CORES="1"
+            MEM=$(echo "$CONF" | grep "^memory:" | awk '{print $2}')
+            TAGS=$(echo "$CONF" | grep "^tags:" | cut -d: -f2 | tr -d ' ')
+            
+            DISK_INFO=$(echo "$CONF" | grep -E "^(scsi0|ide0|virtio0):" | head -n 1)
+            DISK_SIZE=$(echo "$DISK_INFO" | grep -o "size=[^,]*" | cut -d= -f2)
+            [ -z "$DISK_SIZE" ] && DISK_SIZE="-"
 
-    echo -e "${YW}Excluir: $VMID ($VMNAME)? (Dados serão perdidos)${CL}"
-    read -p "Digite 'CONFIRMAR': " CONFIRM
-    
-    if [ "$CONFIRM" == "CONFIRMAR" ]; then
-        qm stop "$VMID" >/dev/null 2>&1
-        qm destroy "$VMID" --purge
-        echo -e "${GN}VM Excluída.${CL}"
-    else
-        echo "Cancelado."
-    fi
-    sleep 1
+            if echo "$CONF" | grep -q "hostpci0"; then DISPLAY="GPU-Pass"; else
+                DISPLAY=$(echo "$CONF" | grep "^vga:" | awk '{print $2}')
+                [ -z "$DISPLAY" ] && DISPLAY="Std"
+            fi
+
+            if [ "$STATUS" == "running" ]; then S_COLOR=$GN; else S_COLOR=$RD; fi
+
+            printf "%-5s | %-20s | ${S_COLOR}%-10s${CL} | %-5s | %-8s | %-10s | %-12s | %-20s\n" \
+                "$vmid" "${NAME:0:20}" "$STATUS" "$CORES" "${MEM}MB" "$DISK_SIZE" "$DISPLAY" "${TAGS:0:20}"
+        done
+        echo "----------------------------------------------------------------------------------------------------------------"
+        echo ""
+        echo -e "${YW}Ações:${CL}"
+        echo "Digite o ID da VM para [EXCLUIR]"
+        echo "Digite 'r' para [ATUALIZAR]"
+        echo "Pressione Enter para [VOLTAR] ao menu principal"
+        echo ""
+        read -p "> " ACTION
+
+        if [ -z "$ACTION" ]; then return; fi
+        if [ "$ACTION" == "r" ]; then continue; fi
+
+        if [[ "$ACTION" =~ ^[0-9]+$ ]]; then
+            if ! qm status "$ACTION" >/dev/null 2>&1; then
+                echo -e "${RD}VM $ACTION não encontrada.${CL}"; sleep 1; continue
+            fi
+            
+            VMNAME_DEL=$(qm config "$ACTION" | grep name | awk '{print $2}')
+            echo -e "${RD}!!! ATENÇÃO !!!${CL}"
+            echo -e "Você vai DESTRUIR a VM: ${BL}$ACTION ($VMNAME_DEL)${CL}"
+            echo -e "Todos os dados e discos serão apagados (Purge)."
+            read -p "Digite 'CONFIRMAR' para prosseguir: " SURE
+            
+            if [ "$SURE" == "CONFIRMAR" ]; then
+                qm stop "$ACTION" >/dev/null 2>&1
+                qm destroy "$ACTION" --purge
+                echo -e "${GN}VM Excluída.${CL}"
+                sleep 2
+            else
+                echo "Cancelado."
+                sleep 1
+            fi
+        fi
+    done
 }
 
 # --- MÓDULO 1: WINDOWS GAMER ---
@@ -128,7 +167,7 @@ create_gaming_vm() {
 
     configure_cpu_affinity "$VMID"
     
-    qm set "$VMID" --hostpci0 "$TARGET_GPU,pcie=1,x-vga=1,rombar=1" --vga none --agent enabled=1 --tags "Gaming,Windows"
+    qm set "$VMID" --hostpci0 "$TARGET_GPU,pcie=1,x-vga=1,rombar=1" --vga none --agent enabled=1 --tags "vm,windows,amd64,gpu"
     
     echo -e "${GN}VM Windows Gamer criada!${CL}"
     read -p "Enter..."
@@ -136,21 +175,30 @@ create_gaming_vm() {
 
 # --- MÓDULO 2: LINUX CLOUD (AUTO-INSTALL) ---
 create_cloud_vm() {
-    echo -e "${GN}--- LINUX CLOUD-INIT (Instalação Automática) ---${CL}"
-    echo "1) Debian 12 (Bookworm)"
-    echo "2) Ubuntu 24.04 LTS"
-    echo "3) Kali Linux (Standard)"
-    echo "4) Fedora 41 Cloud"
-    echo "5) Arch Linux Cloud"
+    echo -e "${GN}--- LINUX CLOUD-INIT (2025 Editions) ---${CL}"
+    echo "1) Debian 13 Trixie (Stable)"
+    echo "2) Debian 12 Bookworm (OldStable)"
+    echo "3) Ubuntu 24.04 LTS (Noble)"
+    echo "4) Ubuntu 25.10 (Latest)"
+    echo "5) Kali Linux (Rolling)"
+    echo "6) Fedora 43 Cloud"
+    echo "7) Arch Linux Cloud"
+    echo "8) CentOS Stream 9"
+    echo "9) Rocky Linux 9"
     echo "0) Voltar"
     read -p "Opção: " OPT
 
     case $OPT in
-        1) URL="https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"; IMG="deb12.qcow2" ;;
-        2) URL="https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"; IMG="ubu24.img" ;;
-        3) URL="https://kali.download/cloud-images/kali-2024.1/kali-linux-2024.1-cloud-generic-amd64.qcow2"; IMG="kali.qcow2" ;;
-        4) URL="https://download.fedoraproject.org/pub/fedora/linux/releases/41/Cloud/x86_64/images/Fedora-Cloud-Base-Generic.x86_64-41-1.4.qcow2"; IMG="fedora.qcow2" ;;
-        5) URL="https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2"; IMG="arch.qcow2" ;;
+        # URL ajustada para a pasta 'latest' do trixie, assumindo release stable
+        1) URL="https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-amd64.qcow2"; IMG="deb13.qcow2"; TAGS="vm,linux,debian,amd64" ;;
+        2) URL="https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"; IMG="deb12.qcow2"; TAGS="vm,linux,debian,amd64" ;;
+        3) URL="https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"; IMG="ubu24-04.img"; TAGS="vm,linux,ubuntu,amd64" ;;
+        4) URL="https://cloud-images.ubuntu.com/releases/25.10/release/ubuntu-25.10-server-cloudimg-amd64.img"; IMG="ubu25-10.img"; TAGS="vm,linux,ubuntu,amd64" ;;
+        5) URL="https://kali.download/cloud-images/kali-rolling/kali-linux-rolling-cloud-generic-amd64.qcow2"; IMG="kali.qcow2"; TAGS="vm,linux,kali,amd64" ;;
+        6) URL="https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic.x86_64-43-1.2.qcow2"; IMG="fedora.qcow2"; TAGS="vm,linux,fedora,amd64" ;;
+        7) URL="https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2"; IMG="arch.qcow2"; TAGS="vm,linux,arch,amd64" ;;
+        8) URL="https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-9-latest.x86_64.qcow2"; IMG="centos9.qcow2"; TAGS="vm,linux,centos,amd64" ;;
+        9) URL="https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base.latest.x86_64.qcow2"; IMG="rocky9.qcow2"; TAGS="vm,linux,rocky,amd64" ;;
         *) return ;;
     esac
 
@@ -170,7 +218,7 @@ create_cloud_vm() {
     qm set "$VMID" --scsihw virtio-scsi-pci --scsi0 "$DEFAULT_STORAGE:vm-$VMID-disk-0,discard=on"
     qm set "$VMID" --ide2 "$DEFAULT_STORAGE:cloudinit" --boot c --bootdisk scsi0 --serial0 socket --vga serial0
     qm set "$VMID" --ciuser "$DEFAULT_USER" --ipconfig0 ip=dhcp
-    qm set "$VMID" --tags "Cloud,Linux"
+    qm set "$VMID" --tags "$TAGS"
 
     echo "Expandindo disco (+32G)..."
     qm resize "$VMID" scsi0 "+32G"
@@ -178,54 +226,46 @@ create_cloud_vm() {
 
     configure_cpu_affinity "$VMID"
 
-    echo -e "${GN}VM Cloud criada! (User: $DEFAULT_USER / Sem senha inicial - Use Console para definir ou SSH Key)${CL}"
+    echo -e "${GN}VM Cloud criada!${CL}"
     read -p "Enter..."
 }
 
-# --- MÓDULO 3: LINUX DESKTOP (ISO INSTALL) ---
+# --- MÓDULO 3: LINUX ISO ---
 create_iso_vm() {
-    echo -e "${GN}--- LINUX DESKTOP (Instalação via ISO) ---${CL}"
-    echo "Estas distros não possuem Cloud-Init oficial estável."
-    echo "O script baixará a ISO e montará a VM para você instalar graficamente."
-    echo ""
-    echo "1) Linux Mint 21.3 (Cinnamon)"
-    echo "2) Kali Linux PURPLE (Security)"
+    echo -e "${GN}--- LINUX MANUAL ISO ---${CL}"
+    echo "1) Linux Mint 22 (Wilma)"
+    echo "2) Kali Linux PURPLE (2025.x)"
     echo "3) Manjaro Gnome (Latest)"
+    echo "4) Gentoo Minimal (Latest)"
     echo "0) Voltar"
     read -p "Opção: " OPT
 
     case $OPT in
-        1) URL="https://mirrors.edge.kernel.org/linuxmint/stable/21.3/linuxmint-21.3-cinnamon-64bit.iso"; ISO="mint.iso"; OS="l26" ;;
-        2) URL="https://cdimage.kali.org/kali-2024.1/kali-linux-2024.1-purple-installer-amd64.iso"; ISO="kali-purple.iso"; OS="l26" ;;
-        3) URL="https://download.manjaro.org/gnome/23.1.3/manjaro-gnome-23.1.3-240113-linux66.iso"; ISO="manjaro.iso"; OS="l26" ;;
+        1) URL="https://mirrors.edge.kernel.org/linuxmint/stable/22/linuxmint-22-cinnamon-64bit.iso"; ISO="mint22.iso"; TAGS="vm,linux,mint,amd64" ;;
+        2) URL="https://cdimage.kali.org/current/kali-linux-purple-installer-amd64.iso"; ISO="kali-purple.iso"; TAGS="vm,linux,kali,amd64" ;;
+        3) URL="https://download.manjaro.org/gnome/24.1.0/manjaro-gnome-24.1.0-linux610.iso"; ISO="manjaro.iso"; TAGS="vm,linux,manjaro,amd64" ;;
+        4) URL="https://distfiles.gentoo.org/releases/amd64/autobuilds/current-install-amd64-minimal/install-amd64-minimal.iso"; ISO="gentoo.iso"; TAGS="vm,linux,gentoo,amd64" ;;
         *) return ;;
     esac
 
-    # Verifica se ISO já existe
     ISO_PATH="$TEMP_DIR/$ISO"
     if [ ! -f "$ISO_PATH" ]; then
-        echo "Baixando ISO (pode demorar)..."
+        echo "Baixando ISO..."
         wget -q --show-progress "$URL" -O "$ISO_PATH"
-    else
-        echo "ISO já encontrada em cache."
     fi
 
     read -p "ID: " VMID
     read -p "Nome: " VMNAME
     
     qm create "$VMID" --name "$VMNAME" --memory 4096 --cores 4 --cpu host --net0 virtio,bridge="$DEFAULT_BRIDGE" --ostype l26
-    
-    # Configuração Gráfica
     qm set "$VMID" --scsihw virtio-scsi-pci --scsi0 "$DEFAULT_STORAGE:64,cache=writeback,discard=on"
     qm set "$VMID" --ide2 "$ISO_STORAGE:iso/$ISO,media=cdrom"
-    qm set "$VMID" --vga virtio # VirtIO-GPU para melhor performance gráfica no instalador
-    qm set "$VMID" --agent enabled=1
-    qm set "$VMID" --tags "ISO,Desktop"
+    qm set "$VMID" --vga virtio --agent enabled=1
+    qm set "$VMID" --tags "$TAGS"
 
     configure_cpu_affinity "$VMID"
 
     echo -e "${GN}VM criada com ISO montada!${CL}"
-    echo "Inicie a VM e use o Console (NoVNC) para instalar o sistema."
     read -p "Enter..."
 }
 
@@ -233,11 +273,10 @@ create_iso_vm() {
 
 while true; do
     header
-    echo "1) Linux Cloud-Init (Debian, Ubuntu, Fedora, Arch, Kali Std)"
-    echo "2) Linux Desktop ISO (Mint, Manjaro, Kali Purple)"
+    echo "1) Linux Cloud-Init (Debian 13, Ubuntu 25, etc)"
+    echo "2) Linux Manual ISO (Mint, Manjaro, Gentoo)"
     echo -e "${YW}3) Windows 11 Gamer (GPU Passthrough)${CL}"
-    echo "4) Listar VMs"
-    echo "5) Excluir VM"
+    echo -e "${BL}4) Gerenciar VMs (Dashboard/Excluir)${CL}"
     echo "0) Sair"
     echo ""
     read -p "Escolha: " OPTION
@@ -246,8 +285,7 @@ while true; do
         1) create_cloud_vm ;;
         2) create_iso_vm ;;
         3) create_gaming_vm ;;
-        4) list_vms ;;
-        5) delete_vm ;;
+        4) manage_vms ;;
         0) exit 0 ;;
         *) echo "Opção inválida." ;;
     esac
