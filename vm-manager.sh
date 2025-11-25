@@ -149,4 +149,101 @@ create_gaming_vm() {
     qm set "$VMID" --agent enabled=1
     qm set "$VMID" --tags "Gaming,Windows,GPU"
 
-    echo -e
+    echo -e "${GN}✅ VM Gamer ($VMID) criada com sucesso!${CL}"
+    read -p "Enter para voltar..."
+}
+
+# --- FUNÇÃO: CRIAR VM LINUX (CLOUD-INIT) ---
+create_vm() {
+    echo -e "${GN}--- CRIAR VM LINUX (CLOUD-INIT) ---${CL}"
+    
+    echo "Selecione a Imagem Base:"
+    echo "1) Debian 12 (Bookworm)"
+    echo "2) Ubuntu 24.04 LTS (Noble)"
+    echo "3) Kali Linux (Cloud)"
+    echo "4) Custom URL"
+    read -p "Opção: " IMG_OPT
+    
+    case $IMG_OPT in
+        1) IMG_URL="https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"; IMG_NAME="debian12.qcow2" ;;
+        2) IMG_URL="https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"; IMG_NAME="ubuntu2404.img" ;;
+        3) IMG_URL="https://kali.download/cloud-images/kali-2024.1/kali-linux-2024.1-cloud-generic-amd64.qcow2"; IMG_NAME="kali.qcow2" ;;
+        4) read -p "Cole a URL direta: " IMG_URL; IMG_NAME="custom.qcow2" ;;
+        *) echo "Opção inválida."; return ;;
+    esac
+
+    read -p "ID da VM: " VMID
+    if qm status "$VMID" >/dev/null 2>&1; then echo "Erro: ID existe."; return; fi
+    read -p "Nome: " VMNAME
+    read -p "Cores (ex: 2): " CORES
+    read -p "Memória MB (ex: 2048): " MEMORY
+    
+    echo "Baixando imagem..."
+    wget -q --show-progress "$IMG_URL" -O "$TEMP_DIR/$IMG_NAME"
+    
+    echo "Criando VM..."
+    # Use CPU Host para melhor performance em Kali/Pentest
+    qm create "$VMID" --name "$VMNAME" --memory "$MEMORY" --cores "$CORES" --cpu host --net0 virtio,bridge="$DEFAULT_BRIDGE"
+    
+    qm importdisk "$VMID" "$TEMP_DIR/$IMG_NAME" "$DEFAULT_STORAGE"
+    qm set "$VMID" --scsihw virtio-scsi-pci --scsi0 "$DEFAULT_STORAGE:vm-$VMID-disk-0,discard=on"
+    qm set "$VMID" --ide2 "$DEFAULT_STORAGE:cloudinit"
+    qm set "$VMID" --boot c --bootdisk scsi0
+    qm set "$VMID" --serial0 socket --vga serial0
+    qm set "$VMID" --ciuser "$DEFAULT_USER" --ipconfig0 ip=dhcp
+    qm set "$VMID" --tags "Linux,CloudInit"
+    
+    # Expansão padrão de disco (Cloud images são pequenas)
+    echo "Expandindo disco (+32G)..."
+    qm resize "$VMID" scsi0 "+32G"
+
+    rm "$TEMP_DIR/$IMG_NAME"
+
+    # --- SELEÇÃO DE ESTRATÉGIA DE CPU ---
+    echo ""
+    echo -e "${YW}Estratégia de CPU (i9-13900K)${CL}"
+    echo "1) Padrão (Scheduler decide - Uso Geral)"
+    echo "2) Performance (P-Cores 0-15) -> Ideal para Cracking/Compilação"
+    echo "3) Eficiência (E-Cores 16-31) -> Ideal para Background/Scans"
+    read -p "Opção: " CPU_OPT
+
+    case $CPU_OPT in
+        2) 
+            qm set "$VMID" --affinity "0-15"
+            echo -e "${GN}Definido para P-Cores (Performance).${CL}"
+            ;;
+        3) 
+            qm set "$VMID" --affinity "16-31"
+            echo -e "${GN}Definido para E-Cores (Background).${CL}"
+            ;;
+        *) 
+            echo "Mantendo padrão (Todos os núcleos)." 
+            ;;
+    esac
+
+    echo -e "${GN}✅ VM Linux criada!${CL}"
+    echo "Lembre-se: Cloud-Init demora ~2 min no primeiro boot."
+    read -p "Enter..."
+}
+
+# --- MENU PRINCIPAL ---
+
+while true; do
+    header
+    echo "1) Criar VM Linux (Cloud-Init + CPU Select)"
+    echo -e "${YW}2) Criar VM Windows Gamer (GPU + P-Cores)${CL}"
+    echo "3) Listar VMs"
+    echo "4) Excluir VM"
+    echo "0) Sair"
+    echo ""
+    read -p "Escolha: " OPTION
+
+    case $OPTION in
+        1) create_vm ;;
+        2) create_gaming_vm ;;
+        3) list_vms ;;
+        4) delete_vm ;;
+        0) exit 0 ;;
+        *) echo "Opção inválida." ;;
+    esac
+done
