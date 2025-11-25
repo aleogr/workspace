@@ -116,7 +116,7 @@ ansible-workstation/
 ├── inventory.ini           # Localhost definition
 ├── setup.yml               # Main Playbook
 ├── vars.yml                # Global Variables (Disk IDs, Users)
-├── manual-yubikey-setup.sh # Helper script for 2FA registration
+├── yubikeys.sh             # Helper script for 2FA registration
 └── roles/                  # Modular Tasks & Handlers
     ├── system/             # Repos, Updates
     ├── desktop/            # GUI, Audio, Kiosk
