@@ -1,5 +1,5 @@
 ---
-# --- TAREFA 1: SUPORTE MULTI-ARCH (Etapa 09 do script antigo) ---
+# --- TAREFA 1: SUPORTE MULTI-ARCH ---
 - name: Instalar suporte a Multi-Arquitetura (LXC Only)
   ansible.builtin.apt:
     name:
@@ -8,8 +8,8 @@
     state: present
     update_cache: yes
 
-# --- TAREFA 2: PVESCRIPTS LOCAL (Etapa 08 do script antigo) ---
-- name: Garantir arquivo de Timezone (Correção para o instalador)
+# --- TAREFA 2: PVESCRIPTS LOCAL ---
+- name: Garantir arquivo de Timezone (Correção para instalador)
   ansible.builtin.copy:
     content: "{{ lookup('pipe', 'timedatectl show --property=Timezone --value') }}\n"
     dest: /etc/timezone
@@ -18,7 +18,8 @@
 - name: Verificar se o Container PVEScriptsLocal já existe
   ansible.builtin.shell: pct list | grep -q "pve-scripts-local"
   register: container_check
-  ignore_errors: true
+  # CORREÇÃO: Aceita 0 (Existe) e 1 (Não Existe) como sucesso
+  failed_when: container_check.rc not in [0, 1]
   changed_when: false
 
 - name: Instalar PVEScriptsLocal (Script da Comunidade)
@@ -26,7 +27,8 @@
     bash -c "$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/ct/pve-scripts-local.sh)"
   args:
     executable: /bin/bash
-  when: container_check.rc != 0
+  # Só roda se o grep retornou 1 (Não encontrou)
+  when: container_check.rc == 1
   register: install_result
 
 # --- TAREFA 3: ATUALIZAR KIOSK COM A NOVA URL ---
@@ -34,6 +36,7 @@
   ansible.builtin.shell: pct list | grep "pve-scripts-local" | awk '{print $1}'
   register: container_id
   changed_when: false
+  # Executa se já existia (rc=0) ou se acabou de instalar (changed)
   when: container_check.rc == 0 or install_result.changed
 
 - name: Obter IP do Container PVEScriptsLocal
@@ -46,13 +49,12 @@
 - name: Adicionar URL do Scripts ao Kiosk Mode
   vars:
     kiosk_file: "/home/{{ new_user }}/.config/autostart/proxmox-ui.desktop"
-    # Define a nova URL (Porta 3000)
     scripts_url: "http://{{ container_ip.stdout }}:3000"
   ansible.builtin.replace:
     path: "{{ kiosk_file }}"
-    # Procura pela linha Exec e se certifica de que a URL não está lá antes de adicionar
-    regexp: '(Exec=chromium.*https://localhost:8007)(.*)'
-    replace: '\1 {{ scripts_url }}'
+    # Regex ajustado para adicionar a URL apenas se ela não existir
+    regexp: '(Exec=chromium.*https://localhost:8007)(?!.*{{ scripts_url }})(.*)'
+    replace: '\1 {{ scripts_url }}\2'
   when: 
     - container_ip.stdout is defined 
     - container_ip.stdout != ""
