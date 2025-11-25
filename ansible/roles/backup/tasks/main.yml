@@ -1,21 +1,38 @@
-- name: Instalar PBS
+---
+- name: Instalar PBS (Proxmox Backup Server)
   ansible.builtin.apt:
     name: [proxmox-backup-server, proxmox-backup-client]
     state: present
+
+# --- CORREÇÃO AQUI ---
+- name: Remover repositório PBS Enterprise (Gerado automaticamente pela instalação)
+  ansible.builtin.file:
+    path: /etc/apt/sources.list.d/pbs-enterprise.list
+    state: absent
+# ---------------------
+
+- name: Configurar Permissões do ZFS para Backup
+  ansible.builtin.file:
+    path: "/{{ pool_name }}/backups"
+    owner: backup
+    group: backup
+    mode: '0700'
 
 - name: Criar Datastore PBS
   ansible.builtin.command: >
     proxmox-backup-manager datastore create {{ pbs_datastore }} /{{ pool_name }}/backups
   register: pbs_create
   failed_when: "pbs_create.rc != 0 and 'already exists' not in pbs_create.stderr"
+  changed_when: "pbs_create.rc == 0"
 
 - name: Obter Fingerprint
   ansible.builtin.shell: proxmox-backup-manager cert info | grep "Fingerprint" | awk '{print $NF}'
-  register: fingerprint
+  register: pbs_fingerprint
   changed_when: false
 
 - name: Adicionar PBS ao PVE
   ansible.builtin.command: >
-    pvesm add pbs {{ pbs_datastore }} --server 127.0.0.1 --datastore {{ pbs_datastore }} --fingerprint {{ fingerprint.stdout }} --username {{ pbs_user }} --password {{ pbs_password }} --content backup
-  failed_when: false # Ignora se já existe
+    pvesm add pbs {{ pbs_datastore }} --server 127.0.0.1 --datastore {{ pbs_datastore }} --fingerprint {{ pbs_fingerprint.stdout }} --username {{ pbs_user }} --password {{ pbs_password }} --content backup
+  register: pve_add_pbs
+  failed_when: "pve_add_pbs.rc != 0 and 'already defined' not in pve_add_pbs.stderr"
   no_log: true
