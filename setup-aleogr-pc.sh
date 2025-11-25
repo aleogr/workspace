@@ -1,14 +1,14 @@
 #!/bin/bash
 # ==============================================================================
-# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final v1.1.2)
+# MASTER SETUP SCRIPT - ALEOGR-PC (Versão Final v1.1.3)
 # ==============================================================================
 # Automação completa para Workstation Proxmox com Passthrough, ZFS e Hardening.
-# Versionamento: SemVer 1.1.2 (Fix: Kiosk Shortcut Registration & DBus Deps)
+# Versionamento: SemVer 1.1.3 (Feat: XFCE Audio Plugin & Volume Control)
 # ==============================================================================
 
 # --- VARIÁVEIS GLOBAIS (EDITE AQUI) ---
 # ------------------------------------------------------------------------------
-SCRIPT_VERSION="1.1.2"
+SCRIPT_VERSION="1.1.3"
 NEW_USER="aleogr"
 DEBIAN_CODENAME="trixie"
 
@@ -145,9 +145,9 @@ step_02_gui() {
     fi
 
     echo "Instalando XFCE, Vídeo e Áudio..."
-    # FIX 1.1.2: dbus-x11 adicionado para automação de atalhos via CLI
+    # FIX 1.1.3: Adicionado xfce4-pulseaudio-plugin para controle de volume na barra
     apt install -y xfce4 xfce4-goodies lightdm chromium sudo xorg xserver-xorg-video-all xserver-xorg-input-all \
-    pipewire pipewire-pulse wireplumber pavucontrol alsa-utils rtkit dbus-user-session dbus-x11 --no-install-recommends
+    pipewire pipewire-pulse wireplumber pavucontrol alsa-utils rtkit dbus-user-session dbus-x11 xfce4-pulseaudio-plugin --no-install-recommends
 
     if id "$NEW_USER" &>/dev/null; then
         printf "%s:%s\n" "$NEW_USER" "$PASSWORD" | chpasswd
@@ -198,7 +198,6 @@ EOF
     chmod +x /usr/local/bin/switch-mode
 
     # 3. Configura Atalho de Teclado no XFCE (Ctrl+Alt+K)
-    # FIX 1.1.2: Usa dbus-launch e sintaxe <Control> explícita
     echo "Configurando atalho Ctrl+Alt+K..."
     su - "$NEW_USER" -c "export DISPLAY=:0; dbus-launch xfconf-query -c xfce4-keyboard-shortcuts -p '/commands/custom/<Control><Alt>k' -n -t string -s '/usr/local/bin/switch-mode'" >/dev/null 2>&1
 
@@ -213,7 +212,7 @@ EOF
     fi
     
     echo -e "${GN}✅ Etapa 02 Concluída.${CL}"
-    echo -e "${YW}Dica: Pressione [Ctrl+Alt+K] para alternar entre Kiosk e Desktop.${CL}"
+    echo -e "${YW}Dica: Adicione o 'PulseAudio Plugin' ao painel para controle de volume.${CL}"
     read -p "Pressione Enter para voltar ao menu..."
 }
 
@@ -528,8 +527,7 @@ step_10_hardening() {
     echo -e "${GN}>>> CADASTRO DE CHAVES YUBIKEY${CL}"
     mkdir -p /etc/Yubico
     MAPPING_FILE="/etc/Yubico/u2f_mappings"
-    KEYS_TEMP_FILE=$(mktemp)
-
+    
     if grep -q "^$NEW_USER" "$MAPPING_FILE" 2>/dev/null; then
         echo -e "${YW}Aviso: Já existem chaves cadastradas para $NEW_USER.${CL}"
         echo "Deseja sobrescrever/adicionar novas? (s/n)"
@@ -541,6 +539,7 @@ step_10_hardening() {
         fi
     fi
 
+    # FIX: Sanitização e lógica de append simples
     FINAL_STRING="$NEW_USER" 
     COUNT=1
     while true; do
@@ -550,6 +549,7 @@ step_10_hardening() {
         echo "Toque no botão da YubiKey agora (quando piscar)..."
         
         KEY_DATA=$(pamu2fcfg -n)
+        # Sanitização: Remove quebras de linha E remove ':' do início para padronizar
         KEY_DATA_CLEAN=$(echo -n "$KEY_DATA" | tr -d '\n\r' | sed 's/^://')
         
         if [ -n "$KEY_DATA_CLEAN" ]; then
