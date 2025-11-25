@@ -1,9 +1,8 @@
 #!/bin/bash
 # ==============================================================================
-# PROXMOX VM MANAGER - ALEOGR (v5.0 - Boot Order Fix)
+# PROXMOX VM MANAGER - ALEOGR (v5.1 - Wide Dashboard)
 # ==============================================================================
-# Gerenciamento de VMs com controle de disco e prioridade de BOOT.
-# Garante que instalações via ISO iniciem pelo CD-ROM automaticamente.
+# Gerenciamento de VMs com Dashboard expandido e corrigido.
 # ==============================================================================
 
 # --- CONFIGURAÇÕES PADRÃO ---
@@ -30,7 +29,7 @@ header() {
  \_/\_/\____/(____) \___/  \___/ (__\_)
 EOF
     echo -e "${CL}"
-    echo -e "${YW}VM Manager v5.0 (Boot Priority)${CL}"
+    echo -e "${YW}VM Manager v5.1 (Wide Dashboard)${CL}"
     echo ""
 }
 
@@ -72,38 +71,54 @@ configure_cpu_affinity() {
     esac
 }
 
-# --- DASHBOARD ---
+# --- DASHBOARD EXPANDIDO ---
 manage_vms() {
     while true; do
         header
         echo -e "${GN}--- DASHBOARD DE VMS ---${CL}"
-        printf "${YW}%-5s | %-18s | %-8s | %-4s | %-8s | %-12s | %-25s${CL}\n" "ID" "NOME" "STATUS" "CPU" "RAM" "DISCO" "DISPLAY" "TAGS"
-        echo "--------------------------------------------------------------------------------------------"
+        
+        # Cabeçalho ajustado e alargado
+        printf "${YW}%-6s | %-25s | %-10s | %-4s | %-9s | %-9s | %-10s | %-40s${CL}\n" \
+            "ID" "NOME" "STATUS" "CPU" "RAM" "DISCO" "DISPLAY" "TAGS"
+        
+        echo "------------------------------------------------------------------------------------------------------------------------------------"
 
         for vmid in $(qm list | awk 'NR>1 {print $1}' | sort -n); do
             CONF=$(qm config $vmid)
+            
+            # Extração de dados
             NAME=$(echo "$CONF" | grep "^name:" | awk '{print $2}')
             STATUS=$(qm status $vmid | awk '{print $2}')
             CORES=$(echo "$CONF" | grep "^cores:" | awk '{print $2}')
             [ -z "$CORES" ] && CORES="1"
-            MEM=$(echo "$CONF" | grep "^memory:" | awk '{print $2}')
+            
+            MEM_MB=$(echo "$CONF" | grep "^memory:" | awk '{print $2}')
+            # Converte para GB se for maior que 1024 para economizar espaço visual
+            if [ "$MEM_MB" -ge 1024 ]; then
+                MEM=$(echo "scale=1; $MEM_MB/1024" | bc | awk '{print int($1+0.5)}')
+                MEM="${MEM}GB"
+            else
+                MEM="${MEM_MB}MB"
+            fi
+
             TAGS=$(echo "$CONF" | grep "^tags:" | cut -d: -f2 | tr -d ' ')
             
             DISK_INFO=$(echo "$CONF" | grep -E "^(scsi0|ide0|virtio0):" | head -n 1)
             DISK_SIZE=$(echo "$DISK_INFO" | grep -o "size=[^,]*" | cut -d= -f2)
             [ -z "$DISK_SIZE" ] && DISK_SIZE="-"
 
-            if echo "$CONF" | grep -q "hostpci0"; then DISPLAY="GPU"; else
+            if echo "$CONF" | grep -q "hostpci0"; then DISPLAY="GPU-Pass"; else
                 DISPLAY=$(echo "$CONF" | grep "^vga:" | awk '{print $2}')
                 [ -z "$DISPLAY" ] && DISPLAY="Std"
             fi
 
             if [ "$STATUS" == "running" ]; then S_COLOR=$GN; else S_COLOR=$RD; fi
 
-            printf "%-5s | %-18s | ${S_COLOR}%-8s${CL} | %-4s | %-8s | %-12s | %-25s\n" \
-                "$vmid" "${NAME:0:18}" "$STATUS" "$CORES" "${MEM}MB" "$DISK_SIZE" "$DISPLAY" "${TAGS:0:25}"
+            # Impressão formatada (Nomes cortados em 25 chars, Tags em 40)
+            printf "%-6s | %-25s | ${S_COLOR}%-10s${CL} | %-4s | %-9s | %-9s | %-10s | %-40s\n" \
+                "$vmid" "${NAME:0:25}" "$STATUS" "$CORES" "$MEM" "$DISK_SIZE" "$DISPLAY" "${TAGS:0:40}"
         done
-        echo "--------------------------------------------------------------------------------------------"
+        echo "------------------------------------------------------------------------------------------------------------------------------------"
         echo ""
         echo -e "${YW}Ações:${CL}"
         echo "Digite o ID da VM para [EXCLUIR]"
@@ -127,7 +142,9 @@ manage_vms() {
             read -p "Digite 'CONFIRMAR' para prosseguir: " SURE
             
             if [ "$SURE" == "CONFIRMAR" ]; then
+                echo "Parando VM..."
                 qm stop "$ACTION" >/dev/null 2>&1
+                echo "Destruindo..."
                 qm destroy "$ACTION" --purge
                 echo -e "${GN}VM Excluída.${CL}"
                 sleep 2
@@ -168,7 +185,6 @@ create_gaming_vm() {
     if [ -n "$WIN_ISO" ]; then qm set "$VMID" --ide2 "$WIN_ISO,media=cdrom"; fi
     if [ -n "$VIRTIO_ISO" ]; then qm set "$VMID" --ide0 "$VIRTIO_ISO,media=cdrom"; fi
 
-    # ATUALIZADO: Boot Order (Windows ISO first)
     if [ -n "$WIN_ISO" ]; then
         echo "Configurando Boot Order: CD-ROM Primeiro..."
         qm set "$VMID" --boot order=ide2;scsi0
@@ -178,7 +194,7 @@ create_gaming_vm() {
     
     qm set "$VMID" --hostpci0 "$TARGET_GPU,pcie=1,x-vga=1,rombar=1" \
         --vga none --agent enabled=1 \
-        --tags "vm,windows,amd64,gpu"
+        --tags "vm,amd64,windows"
     
     echo -e "${GN}VM Windows Gamer criada!${CL}"
     read -p "Enter..."
@@ -199,7 +215,7 @@ create_cloud_vm() {
     echo "0) Voltar"
     read -p "Opção: " OPT
 
-    TAGS="vm,linux,amd64"
+    TAGS="vm,amd64,linux"
 
     case $OPT in
         1) URL="https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-amd64.qcow2"; IMG="deb13.qcow2" ;;
@@ -228,8 +244,6 @@ create_cloud_vm() {
     qm create "$VMID" --name "$VMNAME" --memory "$RAM" --cores "$CORES" --cpu host --net0 virtio,bridge="$DEFAULT_BRIDGE"
     qm importdisk "$VMID" "$TEMP_DIR/$IMG" "$DEFAULT_STORAGE"
     qm set "$VMID" --scsihw virtio-scsi-pci --scsi0 "$DEFAULT_STORAGE:vm-$VMID-disk-0,discard=on"
-    
-    # Cloud-Init: Boot padrão é pelo disco (c), pois a imagem já é o SO instalado
     qm set "$VMID" --ide2 "$DEFAULT_STORAGE:cloudinit" --boot c --bootdisk scsi0 --serial0 socket --vga serial0
     qm set "$VMID" --ciuser "$DEFAULT_USER" --ipconfig0 ip=dhcp
     qm set "$VMID" --tags "$TAGS"
@@ -243,7 +257,7 @@ create_cloud_vm() {
 
     configure_cpu_affinity "$VMID"
 
-    echo -e "${GN}VM Cloud criada!${CL}"
+    echo -e "${GN}VM Cloud criada! (User: $DEFAULT_USER / Sem senha - Use Console)${CL}"
     read -p "Enter..."
 }
 
@@ -257,7 +271,7 @@ create_iso_vm() {
     echo "0) Voltar"
     read -p "Opção: " OPT
 
-    TAGS="vm,linux,amd64"
+    TAGS="vm,amd64,linux"
 
     case $OPT in
         1) URL="https://mirrors.edge.kernel.org/linuxmint/stable/22/linuxmint-22-cinnamon-64bit.iso"; ISO="mint22.iso" ;;
@@ -285,14 +299,12 @@ create_iso_vm() {
     qm set "$VMID" --ide2 "$ISO_STORAGE:iso/$ISO,media=cdrom"
     qm set "$VMID" --vga virtio --agent enabled=1
     
-    # ATUALIZADO: Boot Order (CD-ROM Primeiro)
     qm set "$VMID" --boot order=ide2;scsi0
-    
     qm set "$VMID" --tags "$TAGS"
 
     configure_cpu_affinity "$VMID"
 
-    echo -e "${GN}VM criada com ISO montada (Boot: CD-ROM)!${CL}"
+    echo -e "${GN}VM criada com ISO montada!${CL}"
     read -p "Enter..."
 }
 
