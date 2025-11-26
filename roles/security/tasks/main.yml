@@ -1,5 +1,5 @@
 ---
-- name: Criar Serviço de Desbloqueio ZFS no Boot
+- name: Criar Serviço Systemd para Desbloqueio ZFS (Console Fix)
   ansible.builtin.copy:
     dest: /etc/systemd/system/zfs-load-key.service
     mode: '0644'
@@ -7,57 +7,85 @@
       [Unit]
       Description=Load ZFS encryption keys
       DefaultDependencies=no
-      Before=zfs-mount.service
+      # Garante que o ZFS já tentou importar os pools (cache)
       After=zfs-import.target
+      Before=zfs-mount.service
       Requires=zfs-import.target
+
       [Service]
       Type=oneshot
       RemainAfterExit=yes
+      
+      # Tenta importar o pool '{{ pool_name }}' sem montar, caso ainda não esteja visível.
+      # O '-' no início ignora erros se já estiver importado.
+      ExecStartPre=-/usr/sbin/zpool import -N {{ pool_name }}
+      
+      # Carrega as chaves de todos os pools disponíveis
       ExecStart=/usr/sbin/zfs load-key -a
-      StandardInput=tty-force
+      
+      # Garante a montagem de todos os datasets logo após o desbloqueio
+      ExecStartPost=/usr/sbin/zfs mount -a
+
+      # Configurações Críticas de Console (Evita erro 255/EXCEPTION)
+      StandardInput=tty
+      TTYPath=/dev/console
+      StandardOutput=journal+console
+      StandardError=journal+console
+      
+      # Desabilita o timeout para esperar você digitar a senha com calma
+      TimeoutStartSec=0
+
       [Install]
       WantedBy=zfs-mount.service
   notify: Enable Boot Unlock
 
-- name: Instalar Pacotes de Segurança
+- name: Instalar pacotes de segurança e autenticação
   ansible.builtin.apt:
-    name: [sudo, libpam-u2f, libpam-pwquality]
+    name:
+      - sudo
+      - libpam-u2f
+      - libpam-pwquality
     state: present
 
-- name: Configurar Sudoers para {{ new_user }}
+- name: Configurar permissões de sudo para o usuário {{ new_user }}
   ansible.builtin.copy:
     dest: "/etc/sudoers.d/{{ new_user }}"
     content: "{{ new_user }} ALL=(ALL) ALL"
     mode: '0440'
     validate: 'visudo -cf %s'
 
-- name: Criar diretório Yubico
+- name: Criar diretório de configuração Yubico
   ansible.builtin.file:
     path: /etc/Yubico
     state: directory
     mode: '0755'
 
-- name: Garantir arquivo de mapeamento vazio (se não existir)
+- name: Garantir arquivo de mapeamento U2F vazio (se não existir)
   ansible.builtin.file:
     path: /etc/Yubico/u2f_mappings
     state: touch
     mode: '0644'
+    modification_time: preserve
+    access_time: preserve
 
-- name: Configurar PAM U2F (Auth)
+- name: Configurar PAM U2F (Auth) - Permitir login com Chave
   ansible.builtin.lineinfile:
     path: /etc/pam.d/common-auth
     line: "auth sufficient pam_u2f.so cue nouserok authfile=/etc/Yubico/u2f_mappings"
     insertbefore: BOF
+    state: present
 
-- name: Configurar Senhas Fortes
+- name: Configurar PAM Password Quality (Senhas Fortes)
   ansible.builtin.lineinfile:
     path: /etc/pam.d/common-password
     line: "password requisite pam_pwquality.so retry=3 minlen=12 difok=4 ucredit=-1 lcredit=-1 dcredit=-1 ocredit=-1 enforce_for_root"
     insertbefore: BOF
+    state: present
 
-- name: AVISO DE YUBIKEY
+- name: Aviso sobre Cadastro de Chaves YubiKey
   ansible.builtin.debug:
     msg: 
-      - "Atenção: A configuração do PAM foi aplicada."
-      - "Para cadastrar suas chaves YubiKey, rode manualmente:"
-      - "pamu2fcfg -n >> /etc/Yubico/u2f_mappings"
+      - "SUCESSO: Infraestrutura de segurança configurada."
+      - "ATENÇÃO: O Ansible configurou a 'fechadura' (PAM), mas não as chaves."
+      - "Para cadastrar suas YubiKeys, execute o script auxiliar na raiz:"
+      - "./manual-yubikey-setup.sh"
