@@ -1,5 +1,5 @@
 ---
-- name: Criar Serviço Systemd para Desbloqueio ZFS (Loop Infinito)
+- name: Criar Serviço Systemd para Desbloqueio ZFS (Clean UI)
   ansible.builtin.copy:
     dest: /etc/systemd/system/zfs-load-key.service
     mode: '0644'
@@ -7,7 +7,6 @@
       [Unit]
       Description=Load ZFS encryption keys (Persistent Loop)
       DefaultDependencies=no
-      # Garante que os pools já foram escaneados/importados
       After=zfs-import.target
       Before=zfs-mount.service
       Requires=zfs-import.target
@@ -16,30 +15,48 @@
       Type=oneshot
       RemainAfterExit=yes
       
-      # Tenta garantir que o pool '{{ pool_name }}' está importado (ignora erro se já estiver)
+      # Tenta importar o pool se ainda não estiver visível
       ExecStartPre=-/usr/sbin/zpool import -N {{ pool_name }}
       
-      # O FIX CRÍTICO: Loop 'while' que não deixa o serviço morrer se a senha estiver errada.
-      # Ele vai ficar pedindo "Senha incorreta. Tente novamente..." infinitamente.
-      ExecStart=/bin/bash -c "while ! /usr/sbin/zfs load-key -a; do echo 'Senha incorreta ou Teclado/YubiKey não detectado. Tentando novamente em 1s...'; sleep 1; done"
+      # --- LOOP DE DESBLOQUEIO COM INTERFACE LIMPA ---
+      # 1. Limpa a tela (reset terminal) para remover logs de boot.
+      # 2. Exibe banner claro.
+      # 3. Tenta carregar a chave. Se falhar, avisa e repete.
+      ExecStart=/bin/bash -c "while true; do \
+          printf '\033c'; \
+          echo '============================================================='; \
+          echo ' 🔒  ZFS SECURITY: SISTEMA CRIPTOGRAFADO'; \
+          echo '============================================================='; \
+          echo ''; \
+          echo 'Por favor, insira a senha para desbloquear o disco (PIN + YubiKey).'; \
+          echo ''; \
+          if /usr/sbin/zfs load-key -a; then \
+              echo ''; \
+              echo '✅ Senha aceita! Continuando o boot...'; \
+              break; \
+          fi; \
+          echo ''; \
+          echo '❌ Senha Incorreta. Tentando novamente em 2 segundos...'; \
+          sleep 2; \
+      done"
       
-      # Monta os discos assim que o loop acima tiver sucesso (exit code 0)
+      # Monta os discos imediatamente após o sucesso
       ExecStartPost=/usr/sbin/zfs mount -a
 
-      # Força o prompt a aparecer no monitor físico (Console)
+      # Garante acesso exclusivo ao console físico
       StandardInput=tty
       TTYPath=/dev/console
       StandardOutput=journal+console
       StandardError=journal+console
       
-      # Desativa o timeout do Systemd (padrão é 90s) para esperar você digitar com calma
+      # Desativa timeout para esperar você digitar sem pressa
       TimeoutStartSec=0
 
       [Install]
       WantedBy=zfs-mount.service
   notify: Enable Boot Unlock
 
-- name: Instalar pacotes de segurança
+- name: Instalar pacotes de segurança e autenticação
   ansible.builtin.apt:
     name:
       - sudo
@@ -54,13 +71,13 @@
     mode: '0440'
     validate: 'visudo -cf %s'
 
-- name: Criar diretório Yubico
+- name: Criar diretório de configuração Yubico
   ansible.builtin.file:
     path: /etc/Yubico
     state: directory
     mode: '0755'
 
-- name: Garantir arquivo de mapeamento vazio (se não existir)
+- name: Garantir arquivo de mapeamento U2F vazio (se não existir)
   ansible.builtin.file:
     path: /etc/Yubico/u2f_mappings
     state: touch
@@ -68,22 +85,23 @@
     modification_time: preserve
     access_time: preserve
 
-- name: Configurar PAM U2F (Auth)
+- name: Configurar PAM U2F (Auth) - Permitir login com Chave
   ansible.builtin.lineinfile:
     path: /etc/pam.d/common-auth
     line: "auth sufficient pam_u2f.so cue nouserok authfile=/etc/Yubico/u2f_mappings"
     insertbefore: BOF
     state: present
 
-- name: Configurar Senhas Fortes
+- name: Configurar PAM Password Quality (Senhas Fortes)
   ansible.builtin.lineinfile:
     path: /etc/pam.d/common-password
     line: "password requisite pam_pwquality.so retry=3 minlen=12 difok=4 ucredit=-1 lcredit=-1 dcredit=-1 ocredit=-1 enforce_for_root"
     insertbefore: BOF
     state: present
 
-- name: Aviso sobre Cadastro de Chaves
+- name: Aviso sobre Cadastro de Chaves YubiKey
   ansible.builtin.debug:
     msg: 
-      - "SUCESSO: Serviço de Boot corrigido e PAM configurado."
-      - "ATENÇÃO: Cadastre suas chaves rodando manualmente: ./manual-yubikey-setup.sh"
+      - "SUCESSO: Serviço de Boot com visual limpo configurado."
+      - "ATENÇÃO: Para cadastrar suas chaves, rode o script manual na raiz:"
+      - "./manual-yubikey-setup.sh"
