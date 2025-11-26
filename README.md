@@ -1,4 +1,4 @@
-# 🛠️ Proxmox Workstation
+# 🛠️ Proxmox Workstation Automation
 
 **Infrastructure as Code (IaC)** repository to transform a High-End Desktop into a hyper-converged **Proxmox VE Workstation**.
 
