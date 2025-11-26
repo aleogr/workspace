@@ -18,7 +18,7 @@
       - alsa-utils
       - rtkit
       - dbus-user-session
-      - dbus-x11  # Necessário para xfconf-query
+      - dbus-x11
       - xfce4-pulseaudio-plugin
       - xarchiver
       - xz-utils
@@ -76,14 +76,24 @@
           pkill -KILL -u {{ new_user }}
       fi
 
+- name: Garantir diretórios de configuração do XFCE
+  ansible.builtin.file:
+    path: "/home/{{ new_user }}/.config/xfce4/xfconf/xfce-perchannel-xml"
+    state: directory
+    owner: "{{ new_user }}"
+    group: "{{ new_user }}"
+    mode: '0700'
+    recurse: yes
+
 - name: Configurar Atalho de Teclado (Ctrl+Alt+K)
   ansible.builtin.shell: |
-    export DISPLAY=:0
-    dbus-launch xfconf-query -c xfce4-keyboard-shortcuts -p '/commands/custom/<Control><Alt>k' -n -t string -s '/usr/local/bin/switch-mode'
+    dbus-launch xfconf-query -c xfce4-keyboard-shortcuts -p '/commands/custom/<Control><Alt>k' -n -t string -s '/usr/local/bin/switch-mode' || \
+    dbus-launch xfconf-query -c xfce4-keyboard-shortcuts -p '/commands/custom/<Control><Alt>k' -s '/usr/local/bin/switch-mode'
   become: true
   become_user: "{{ new_user }}"
+  environment:
+    DISPLAY: ":0"
   register: shortcut_result
-  failed_when: "shortcut_result.rc != 0 and 'already exists' not in shortcut_result.stderr"
   changed_when: "shortcut_result.rc == 0"
 
 - name: Desmutar Áudio Master
@@ -91,7 +101,7 @@
     amixer sset Master unmute || true
     amixer sset Master 100% || true
 
-- name: Corrigir Permissões da Home (Recursivo)
+- name: Corrigir Permissões da Home (Recursivo Final)
   ansible.builtin.file:
     path: "/home/{{ new_user }}"
     owner: "{{ new_user }}"
