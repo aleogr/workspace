@@ -76,25 +76,30 @@
           pkill -KILL -u {{ new_user }}
       fi
 
-- name: Garantir diretórios de configuração do XFCE
-  ansible.builtin.file:
-    path: "/home/{{ new_user }}/.config/xfce4/xfconf/xfce-perchannel-xml"
-    state: directory
+- name: Criar Script de Registro de Atalho
+  ansible.builtin.copy:
+    dest: /usr/local/bin/register-kiosk-shortcut.sh
+    mode: '0755'
+    content: |
+      #!/bin/bash
+      # Tenta criar (-n), se falhar, atualiza (-s)
+      xfconf-query -c xfce4-keyboard-shortcuts -p '/commands/custom/<Control><Alt>k' -n -t string -s '/usr/local/bin/switch-mode' 2>/dev/null || \
+      xfconf-query -c xfce4-keyboard-shortcuts -p '/commands/custom/<Control><Alt>k' -s '/usr/local/bin/switch-mode'
+
+- name: Adicionar Registro de Atalho ao Autostart
+  ansible.builtin.copy:
+    dest: "/home/{{ new_user }}/.config/autostart/ensure-shortcut.desktop"
     owner: "{{ new_user }}"
     group: "{{ new_user }}"
-    mode: '0700'
-    recurse: yes
-
-- name: Configurar Atalho de Teclado (Ctrl+Alt+K)
-  ansible.builtin.shell: |
-    dbus-launch xfconf-query -c xfce4-keyboard-shortcuts -p '/commands/custom/<Control><Alt>k' -n -t string -s '/usr/local/bin/switch-mode' || \
-    dbus-launch xfconf-query -c xfce4-keyboard-shortcuts -p '/commands/custom/<Control><Alt>k' -s '/usr/local/bin/switch-mode'
-  become: true
-  become_user: "{{ new_user }}"
-  environment:
-    DISPLAY: ":0"
-  register: shortcut_result
-  changed_when: "shortcut_result.rc == 0"
+    mode: '0755'
+    content: |
+      [Desktop Entry]
+      Type=Application
+      Name=Ensure Kiosk Shortcut
+      Exec=/usr/local/bin/register-kiosk-shortcut.sh
+      StartupNotify=false
+      Terminal=false
+      Hidden=false
 
 - name: Desmutar Áudio Master
   ansible.builtin.shell: |
