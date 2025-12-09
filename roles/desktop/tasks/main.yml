@@ -36,7 +36,7 @@
     name: "{{ new_user }}"
     password: "{{ user_password }}"
     shell: /bin/bash
-    groups: sudo,audio,video,render
+    groups: sudo,audio,video,render,bluetooth
     append: yes
 
 - name: Criar diretório Autostart
@@ -120,3 +120,9 @@
   ansible.builtin.service:
     name: lightdm
     enabled: yes
+
+- name: Habilitar serviço Bluetooth
+  ansible.builtin.service:
+    name: bluetooth
+    enabled: yes
+    state: started
