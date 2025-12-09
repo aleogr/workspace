@@ -20,6 +20,9 @@
       - dbus-user-session
       - dbus-x11
       - xfce4-pulseaudio-plugin
+      - bluez
+      - blueman
+      - libspa-0.2-bluetooth
       - xarchiver
       - xz-utils
       - zip
