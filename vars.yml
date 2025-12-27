@@ -5,16 +5,29 @@ user_shell: "/bin/bash"
 # Sistema
 debian_codename: "trixie"
 
-# Hardware (Use o ID do WD SN850X)
-disk_device: "/dev/disk/by-id/nvme-WD_BLACK_SN850X_2000GB_222503A00551"
-# disk_device: "/dev/sdb" # Para testes
+# Hardware
+# AVISO DE SEGURANÇA: 
+# A variável 'disk_device' foi removida intencionalmente.
+# O Ansible agora assume que usará o disco onde o sistema (Proxmox) já está instalado (rpool).
+# O NVMe de 2TB (Windows) NÃO será tocado.
 
 # ZFS
-pool_name: "tank"
-storage_id_vm: "VM-Storage"
-zfs_arc_limit_bytes: 8589934592 # 8GB em Bytes
+# "rpool" é o nome padrão criado automaticamente na instalação do Proxmox
+pool_name: "rpool" 
+
+# Storage ID
+# Usaremos "local-zfs" para se alinhar ao padrão do Proxmox, 
+# facilitando o gerenciamento em um único disco.
+storage_id_vm: "local-zfs" 
+
+# Limite de RAM para ZFS (ARC)
+# Definido para 4GB (4 * 1024^3). 
+# Com um disco de 512GB, 4GB de cache é suficiente e sobra mais RAM para as VMs.
+zfs_arc_limit_bytes: 4294967296 
 
 # Backup (PBS)
+# ATENÇÃO: Como você só tem 512GB no total, o espaço para backups será limitado.
+# Recomenda-se limpar backups antigos frequentemente.
 pbs_datastore: "Backup-PBS"
 pbs_user: "root@pam"
 
