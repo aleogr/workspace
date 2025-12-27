@@ -1,58 +1,70 @@
 ---
-# --- 1. SELEÇÃO INTELIGENTE DE DISCO ---
-- name: Detectar ambiente (VM ou Real) e definir disco alvo
-  ansible.builtin.set_fact:
-    # Se for 'guest' (VM), usa /dev/sdb. Se não, usa o ID do vars.yml
-    target_disk: "{{ '/dev/sdb' if ansible_virtualization_role == 'guest' else disk_device }}"
+# --- 1. DETECÇÃO DE AMBIENTE (Preservada e Adaptada) ---
+# Mantivemos a lógica para saber onde estamos rodando, mas removemos 
+# a definição de 'target_disk' para formatação, pois não vamos formatar nada.
 
-- name: Exibir disco selecionado (Debug)
+- name: Detectar ambiente de virtualização
   ansible.builtin.debug:
-    msg: "Ambiente: {{ ansible_virtualization_role }}. Usando disco: {{ target_disk }}"
+    msg: 
+      - "Ambiente detectado: {{ ansible_virtualization_role | default('bare-metal') }}"
+      - "Modo de Operação: CONFIGURAÇÃO DE SINGLE DISK (Dual Boot Safe)"
+      - "O disco do Windows (2TB) será IGNORADO."
+      - "Usando pool do sistema: {{ pool_name }}"
 
-# --- 2. VERIFICAÇÃO ROBUSTA ---
-- name: Verificar existência do Pool {{ pool_name }}
+# --- 2. VERIFICAÇÃO DE SEGURANÇA ---
+- name: Verificar se o Pool {{ pool_name }} (Sistema) está ativo
   ansible.builtin.command: zpool list {{ pool_name }}
-  register: pool_exists
-  # Correção: Não falha se retornar 1 (não encontrado), apenas registra
-  failed_when: pool_exists.rc not in [0, 1]
+  register: pool_check
+  # Aqui mudamos a lógica: Se o pool NÃO existir, falhamos.
+  # O Proxmox já deve estar instalado neste pool.
+  failed_when: pool_check.rc != 0
   changed_when: false
 
-# --- 3. CRIAÇÃO DO POOL ---
-- name: Formatar e Criar Pool ZFS (Se não existir)
-  ansible.builtin.shell: |
-    # Limpa o disco correto (target_disk)
-    sgdisk --zap-all {{ target_disk }}
-    wipefs -a {{ target_disk }}
-    
-    # Cria o pool usando a senha fornecida no prompt
-    echo "{{ zfs_password }}" | zpool create -f -o ashift=12 -o autotrim=on -O compression=lz4 -O atime=off -O acltype=posixacl -O xattr=sa -O encryption=aes-256-gcm -O keyformat=passphrase -O keylocation=prompt {{ pool_name }} {{ target_disk }}
-  
-  # Só roda se o pool não existir (rc == 1) E se tivermos uma senha
-  when: 
-    - pool_exists.rc == 1
-    - zfs_password is defined
-  no_log: true # Esconde a senha do log de erro
+- name: Abortar se o pool do sistema não for encontrado
+  ansible.builtin.fail:
+    msg: "ERRO CRÍTICO: O pool '{{ pool_name }}' não foi encontrado. O Proxmox foi instalado com ZFS?"
+  when: pool_check.rc != 0
 
-# --- 4. DATASETS ---
-- name: Criar Datasets
+# --- 3. DATASETS (Organização) ---
+# Criamos datasets para separar VMs e Backups dentro do disco de boot
+
+- name: Criar Datasets Organizacionais
   community.general.zfs:
     name: "{{ item }}"
     state: present
+    # Herdamos as propriedades do pool raiz (compressão, etc)
   loop:
-    - "{{ pool_name }}/vms"
-    - "{{ pool_name }}/backups"
+    - "{{ pool_name }}/vms"      # Onde ficarão os discos das VMs
+    - "{{ pool_name }}/backups"  # Onde o PBS salvará dados
 
-# --- 5. STORAGE.CFG ---
-- name: Adicionar Storage ao Proxmox
+# --- 4. CONFIGURAÇÃO DO STORAGE NO PROXMOX ---
+
+# Verifica se o storage ID já existe no /etc/pve/storage.cfg
+- name: Verificar existência do Storage ID {{ storage_id_vm }}
+  ansible.builtin.shell: pvesm status | grep -w "{{ storage_id_vm }}"
+  register: storage_check
+  failed_when: false
+  changed_when: false
+
+# Cenário A: Se for o 'local-zfs' padrão, apenas garantimos que ele aceite tudo
+- name: Atualizar permissões de conteúdo do 'local-zfs' (Se for o padrão)
+  ansible.builtin.command: >
+    pvesm set {{ storage_id_vm }} --content images,rootdir,vztmpl,iso,snippets
+  when: 
+    - storage_check.rc == 0
+    - storage_id_vm == "local-zfs"
+  changed_when: false
+
+# Cenário B: Se for um nome novo (ex: VM-Storage) e não existir, criamos
+- name: Adicionar Novo Storage ZFS ao Proxmox
   ansible.builtin.command: >
     pvesm add zfspool {{ storage_id_vm }} --pool {{ pool_name }}/vms --content images,rootdir --sparse 1
+  when: storage_check.rc != 0
   register: pvesm_add
-  # Ignora erro se já estiver adicionado
-  failed_when: "pvesm_add.rc != 0 and 'already defined' not in pvesm_add.stderr"
   changed_when: "pvesm_add.rc == 0"
 
-# --- 6. SWAP ---
-- name: Configurar Swappiness
+# --- 5. SWAP NO ZFS (Essencial para estabilidade) ---
+- name: Configurar Swappiness (Evitar uso excessivo do NVMe)
   ansible.posix.sysctl:
     name: vm.swappiness
     value: '10'
@@ -60,23 +72,36 @@
     sysctl_file: /etc/sysctl.d/99-pve-swappiness.conf
 
 - name: Verificar se Swap ZFS já existe
-  ansible.builtin.command: zfs list rpool/swap
+  ansible.builtin.command: zfs list {{ pool_name }}/swap
   register: swap_check
   failed_when: false
   changed_when: false
 
 - name: Criar e Ativar Swap ZVol (Se não existir)
   ansible.builtin.shell: |
-    zfs create -V 8G -b $(getconf PAGESIZE) -o compression=zle -o logbias=throughput -o sync=always -o primarycache=metadata -o secondarycache=none -o com.sun:auto-snapshot=false rpool/swap
+    # Cria volume de 8GB
+    zfs create -V 8G -b $(getconf PAGESIZE) \
+      -o compression=zle \
+      -o logbias=throughput \
+      -o sync=always \
+      -o primarycache=metadata \
+      -o secondarycache=none \
+      -o com.sun:auto-snapshot=false \
+      {{ pool_name }}/swap
+    
     udevadm settle
-    mkswap -f /dev/zvol/rpool/swap
-    swapon /dev/zvol/rpool/swap
+    
+    # Formata como Swap
+    mkswap -f /dev/zvol/{{ pool_name }}/swap
+    
+    # Ativa
+    swapon /dev/zvol/{{ pool_name }}/swap
   when: swap_check.rc != 0
 
 - name: Persistir Swap no Fstab
   ansible.posix.mount:
     path: none
-    src: /dev/zvol/rpool/swap
+    src: /dev/zvol/{{ pool_name }}/swap
     fstype: swap
     opts: sw
     state: present
