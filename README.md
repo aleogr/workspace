@@ -2,31 +2,30 @@
 
 **Infrastructure as Code (IaC)** repository to transform a High-End Desktop into a hyper-converged **Proxmox VE Workstation**.
 
-This project replaces legacy Bash scripts with **Ansible**, offering idempotency, modularity, and state management for complex setups involving GPU Passthrough, ZFS Native Encryption, and Local Backup Server.
+This project replaces legacy Bash scripts with **Ansible**, offering idempotency, modularity, and state management for complex setups involving ZFS Native Encryption, Kiosk UI, and Local Backup Server. The current architecture is designed to safely coexist with a native Windows 11 Dual-Boot.
 
 ![Ansible](https://img.shields.io/badge/Ansible-2.10+-red?style=flat&logo=ansible) ![Platform](https://img.shields.io/badge/Platform-Proxmox_VE_9.x-orange) ![License](https://img.shields.io/badge/License-MIT-blue)
 
 ## ⚙️ Target Hardware
 
-Developed and tested on the following specification (adjust `vars.yml` for your needs):
+Developed and tested on the following specification. *Note: The secondary NVMe drive used for Windows 11 is completely isolated and untouched by this playbook.*
 
 | Component | Model | Role |
 | :--- | :--- | :--- |
-| **CPU** | Intel Core i9-13900K | P-Cores for Gaming VM / E-Cores for Host |
-| **GPU** | NVIDIA GeForce RTX 3090 Ti | PCIe Passthrough (Windows VM) |
-| **RAM** | 64GB DDR5 | ZFS ARC + VMs |
-| **SSD** | NVMe Gen4 512GB | Proxmox VE System |
-| **Motherboard** | ASUS ROG MAXIMUS Z790 HERO | IOMMU / Virtualization |
+| **CPU** | Intel Core i9-13900K | Processing for Host and VMs |
+| **GPU** | NVIDIA GeForce RTX 3090 Ti | Host Native Acceleration (Kiosk/XFCE) |
+| **RAM** | 64GB DDR5 | ZFS ARC (4GB) + VMs |
+| **SSD** | NVMe Gen4 512GB | **Host OS + VMs + Backups (rpool)** |
+| **Motherboard** | ASUS ROG MAXIMUS Z790 HERO | Virtualization |
 
 ## 📋 Prerequisites
 
-### 1. BIOS Settings
-Before installing Proxmox, ensure:
-* **VT-x / VT-d:** Enabled.
-* **Secure Boot:** Disabled (Critical for proprietary drivers).
-* **Primary Display:** **IGFX/CPU Graphics** (Free up NVIDIA for VM).
-* **Re-Size BAR:** Disabled (Initially, to avoid VFIO errors).
-* **Above 4G Decoding:** Enabled.
+### 1. BIOS Settings (Windows 11 / Dual-Boot Friendly)
+Since this architecture no longer uses GPU Passthrough (VFIO), you can keep your BIOS optimized for native PC Gaming:
+* **Secure Boot:** **Enabled** (Fully compatible with Windows 11, Steam, and Anti-cheats).
+* **Primary Display:** **PEG / PCIe GPU** (Proxmox will use the RTX 3090 Ti for the UI).
+* **VT-x (Virtualization):** Enabled (Required to run VMs inside Proxmox).
+* **Re-Size BAR:** Enabled.
 
 ### 2. Bootstrap (On Proxmox Host)
 Install Ansible and Git on the fresh Proxmox installation:
@@ -38,18 +37,19 @@ apt update && apt install -y ansible git
 ### 3. Clone Repository
 
 ```bash
-git clone [https://github.com/YOUR_USERNAME/workspace.git](https://github.com/YOUR_USERNAME/workspace.git) ansible-workstation
+git clone [https://github.com/aleogr/workspace.git](https://github.com/aleogr/workspace.git) ansible-workstation
 cd ansible-workstation
 ```
 
 ## 🚀 Usage
 
 ### 1. Configure Variables
-Edit the vars.yml file to match your hardware (specifically the Disk ID and User):
+Edit the `vars.yml` file to match your environment. The setup is pre-configured to operate exclusively on the root pool (`rpool`), respecting and isolating any other installed OS drives.
 
-```bash
-disk_device: "/dev/disk/by-id/nvme-YOUR_DISK_ID_HERE"
+```yaml
 new_user: "yourname"
+# Ensure pool_name matches your Proxmox installation (default is rpool)
+pool_name: "rpool"
 ```
 
 ### 2. Run the Playbook
@@ -62,20 +62,6 @@ ansible-playbook -i inventory.ini setup.yml
 # Run specific parts (e.g., only desktop tweaks)
 ansible-playbook -i inventory.ini setup.yml --tags "desktop"
 ```
-
-## 👣 Execution Workflow
-
-To ensure stability (especially for NVMe and GPU), follow this strict order:
-
-### PHASE 1: System & Hardware
-1.  Run the playbook targeting **hardware** tags:
-    `ansible-playbook -i inventory.ini setup.yml --tags "system,hardware"`
-2.  **REBOOT THE SYSTEM**.
-    * *This loads the kernel parameters that prevent the WD SN850X SSD from freezing during formatting.*
-
-### PHASE 2: Data & Services
-3.  Run the full playbook:
-    `ansible-playbook -i inventory.ini setup.yml`
 
 ## ✋ Manual Steps (Post-Run)
 
@@ -104,7 +90,7 @@ The installer is interactive. Ansible downloads it for you. Run:
 After installation, re-run the extras tag to update the Kiosk URL automatically: `ansible-playbook -i inventory.ini setup.yml --tags "extras"`
 
 ### 3. Unlock ZFS on Boot
-On reboot, the system will pause.
+On reboot, the system will pause and present a clean prompt.
 - Type: Your ZFS Password (or PIN + YubiKey Static Password).
 - Press: Enter.
 
@@ -114,23 +100,21 @@ On reboot, the system will pause.
 ansible-workstation/
 ├── inventory.ini           # Localhost definition
 ├── setup.yml               # Main Playbook
-├── vars.yml                # Global Variables (Disk IDs, Users)
+├── vars.yml                # Global Variables (Users, ZFS ARC limit)
 ├── yubikeys.sh             # Helper script for 2FA registration
 └── roles/                  # Modular Tasks & Handlers
     ├── system/             # Repos, Updates
     ├── desktop/            # GUI, Audio, Kiosk
-    ├── hardware/           # Kernel, GPU VFIO
-    ├── storage/            # ZFS, Swap
-    ├── backup/             # PBS Local
-    ├── security/           # Hardening, Boot Unlock
-    └── extras/             # Multiarch, PVEScripts
+    ├── hardware/           # ZFS Tuning, NVMe Latency Fix
+    ├── storage/            # ZFS Datasets, Native Swap setup
+    ├── backup/             # Local PBS Datastore configuration
+    ├── security/           # Clean Boot Unlock service, PAM U2F
+    └── extras/             # Multiarch support, PVEScripts
 ```
 
 ## ⚠️ Disclaimer
 
-**Data Loss Warning:** The `storage` role will **format the disk** defined in `disk_device` if the pool `tank` does not exist.
-* The playbook includes a safety check (`zpool list`) to prevent overwriting an existing pool named `tank`.
-* Always verify your `vars.yml` before running.
+**Single-Disk Operation:** The `storage` role is designed to safely create datasets and swap volumes exclusively inside the existing system pool (`rpool`). It will **NOT** format secondary disks, ensuring your Windows 11 dual-boot environment remains safe. Always verify your `vars.yml` before running.
 
 ## 🙏 Credits
 
