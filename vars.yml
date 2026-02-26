@@ -5,30 +5,17 @@ user_shell: "/bin/bash"
 # Sistema
 debian_codename: "trixie"
 
-# Hardware
-# AVISO DE SEGURANÇA: 
-# A variável 'disk_device' foi removida intencionalmente.
-# O Ansible agora assume que usará o disco onde o sistema (Proxmox) já está instalado (rpool).
-# O NVMe de 2TB (Windows) NÃO será tocado.
-
-# ZFS
-# "rpool" é o nome padrão criado automaticamente na instalação do Proxmox
+# --- CONFIGURAÇÃO DE DISCO ÚNICO ---
+# O Proxmox está instalado no NVMe de 512GB (rpool).
+# O WD Black 2TB (Windows) NÃO deve ser listado aqui.
 pool_name: "rpool" 
-
-# Storage ID
-# Usaremos "local-zfs" para se alinhar ao padrão do Proxmox, 
-# facilitando o gerenciamento em um único disco.
 storage_id_vm: "local-zfs" 
 
-# Limite de RAM para ZFS (ARC)
-# Definido para 4GB (4 * 1024^3). 
-# Com um disco de 512GB, 4GB de cache é suficiente e sobra mais RAM para as VMs.
+# Limite de RAM para ZFS (ARC) - 4GB é ideal para 512GB de disco
 zfs_arc_limit_bytes: 4294967296 
 
-# Backup (PBS)
-# ATENÇÃO: Como você só tem 512GB no total, o espaço para backups será limitado.
-# Recomenda-se limpar backups antigos frequentemente.
-pbs_datastore: "Backup-PBS"
+# Backup (PBS) interno no rpool
+pbs_datastore: "Backup-Internal"
 pbs_user: "root@pam"
 
 # CPU
