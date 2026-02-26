@@ -16,7 +16,6 @@ Developed and tested on the following specification (adjust `vars.yml` for your 
 | **GPU** | NVIDIA GeForce RTX 3090 Ti | PCIe Passthrough (Windows VM) |
 | **RAM** | 64GB DDR5 | ZFS ARC + VMs |
 | **OS Disk** | NVMe Gen4 512GB | Proxmox VE System |
-| **Data Disk** | WD Black SN850X 2TB | **Encrypted ZFS Pool** (VMs + Backups) |
 | **Motherboard** | ASUS ROG MAXIMUS Z790 HERO | IOMMU / Virtualization |
 
 ## 📋 Prerequisites
