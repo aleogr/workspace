@@ -1,0 +1,18 @@
+{
+  "id": "base",
+  "version": "1.0.0",
+  "name": "Base Development Utilities",
+  "description": "Installs core system utilities (curl, tar, git, jq) and GoReleaser.",
+  "options": {
+    "goreleaserVersion": {
+      "type": "string",
+      "default": "latest",
+      "description": "GoReleaser version to install ('latest' resolves the newest stable release)."
+    },
+    "installBuildTools": {
+      "type": "boolean",
+      "default": true,
+      "description": "Install build-essential (C toolchain, required for CGO)."
+    }
+  }
+}

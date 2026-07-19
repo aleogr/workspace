@@ -1,0 +1,25 @@
+{
+  "id": "claude",
+  "version": "1.0.0",
+  "name": "Claude Code (mentor mode)",
+  "description": "Installs the Claude Code CLI, by default locked into a mentor configuration that teaches and reviews but never writes code, edits files or commits.",
+  "options": {
+    "version": {
+      "type": "string",
+      "default": "stable",
+      "description": "Claude Code release channel or version: 'stable', 'latest' or a specific version number (e.g. '2.0.14')."
+    },
+    "teacherMode": {
+      "type": "boolean",
+      "default": true,
+      "description": "Apply the mentor guardrails (user CLAUDE.md, Mentor output style, permission deny rules and a PreToolUse hook) so Claude guides instead of producing code. Set to false for a plain CLI install."
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "anthropic.claude-code"
+      ]
+    }
+  }
+}

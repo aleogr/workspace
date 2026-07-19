@@ -1,0 +1,47 @@
+name: Test Features
+
+on:
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  Shellcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout git repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Run shellcheck
+        run: >
+          docker run --rm
+          -v "${{ github.workspace }}:/mnt"
+          koalaman/shellcheck:v0.11.0
+          devcontainers/features/src/*/install.sh devcontainers/features/test/*/test.sh
+
+  Test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        feature: [ base, claude, go, vscode ]
+    steps:
+      - name: Checkout git repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install devcontainer CLI
+        run: npm install -g @devcontainers/cli@0.87.0
+
+      - name: Test feature
+        run: >
+          devcontainer features test
+          --features ${{ matrix.feature }}
+          --base-image mcr.microsoft.com/devcontainers/base:ubuntu
+          ./devcontainers/features

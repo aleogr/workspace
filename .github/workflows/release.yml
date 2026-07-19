@@ -1,0 +1,31 @@
+name: Release Features
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'devcontainers/features/src/**' ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ${{ github.workflow }}
+
+jobs:
+  Release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout git repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Publish features
+        uses: devcontainers/action@1082abd5d2bf3a11abccba70eef98df068277772 # v1.4.3
+        with:
+          publish-features: "true"
+          base-path-to-features: "./devcontainers/features/src"
+          features-namespace: "aleogr/workspace/features"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

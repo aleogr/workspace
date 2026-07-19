@@ -1,0 +1,28 @@
+name: Lint Workflows
+
+on:
+  pull_request:
+    paths: [ '.github/**' ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  Actionlint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout git repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Run actionlint
+        run: >
+          docker run --rm
+          -v "${{ github.workspace }}:/repo"
+          --workdir /repo
+          rhysd/actionlint:1.7.9
+          -color

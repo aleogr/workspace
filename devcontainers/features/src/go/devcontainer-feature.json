@@ -1,0 +1,39 @@
+{
+  "id": "go",
+  "version": "1.0.0",
+  "name": "Go Development Environment",
+  "description": "Installs the Go toolchain and golangci-lint.",
+  "options": {
+    "goVersion": {
+      "type": "string",
+      "default": "latest",
+      "description": "Go version to install ('latest' resolves the newest stable release)."
+    },
+    "lintVersion": {
+      "type": "string",
+      "default": "latest",
+      "description": "golangci-lint version ('latest' resolves the newest stable release)."
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go"
+      ],
+      "settings": {
+        "go.toolsManagement.autoUpdate": true,
+        "go.lintTool": "golangci-lint",
+        "go.lintFlags": ["--fast-only"],
+        "go.formatTool": "gofmt",
+        "[go]": {
+          "editor.tabSize": 4,
+          "editor.insertSpaces": false
+        }
+      }
+    }
+  },
+  "containerEnv": {
+    "GOPATH": "/go",
+    "PATH": "/usr/local/go/bin:/go/bin:${PATH}"
+  }
+}

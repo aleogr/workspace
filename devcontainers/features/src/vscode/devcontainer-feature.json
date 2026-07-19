@@ -1,0 +1,19 @@
+{
+  "id": "vscode",
+  "version": "1.0.0",
+  "name": "VS Code Global Preferences",
+  "description": "Configures core VS Code productivity extensions and editor behaviors for developers.",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "usernamehw.errorlens",
+        "eamodio.gitlens",
+        "tamasfe.even-better-toml",
+        "github.vscode-github-actions"
+      ],
+      "settings": {
+        "editor.formatOnSave": true
+      }
+    }
+  }
+}
