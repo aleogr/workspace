@@ -102,6 +102,31 @@ Node.js runtime and npm, with Corepack enabling yarn and pnpm per project
 </details>
 
 
+<!-- python -->
+
+<details name="features">
+
+<summary>python</summary>
+<br />
+
+Standalone CPython with pip, provisioned by uv, plus Ruff for linting and formatting
+
+```json
+{
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/aleogr/workspace/features/python:1": {}
+  }
+}
+```
+
+> **`pythonVersion`** · `latest` · Python version ('latest' resolves the newest stable CPython, or a request uv understands such as '3.13')
+
+> **`installRuff`** · `true` · Install Ruff, the Python linter and formatter
+
+</details>
+
+
 <!-- vscode -->
 
 <details name="features">

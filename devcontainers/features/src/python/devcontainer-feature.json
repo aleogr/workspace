@@ -1,0 +1,39 @@
+{
+  "id": "python",
+  "version": "1.0.0",
+  "name": "Python Development Environment",
+  "description": "Installs uv and uses it to provision a standalone CPython interpreter with pip, and optionally Ruff for linting and formatting.",
+  "options": {
+    "pythonVersion": {
+      "type": "string",
+      "default": "latest",
+      "description": "Python version to install ('latest' resolves the newest stable CPython, or a request uv understands such as '3.13' or '3.12.7')."
+    },
+    "installRuff": {
+      "type": "boolean",
+      "default": true,
+      "description": "Install Ruff, the Python linter and formatter."
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "charliermarsh.ruff"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python3",
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.tabSize": 4
+        }
+      }
+    }
+  },
+  "containerEnv": {
+    "UV_PYTHON_INSTALL_DIR": "/usr/local/python"
+  },
+  "installsAfter": [
+    "ghcr.io/aleogr/workspace/features/base"
+  ]
+}
