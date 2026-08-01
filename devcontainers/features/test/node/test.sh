@@ -15,8 +15,9 @@ check "yarn shim" test -x /usr/local/node/bin/yarn
 check "pnpm shim" test -x /usr/local/node/bin/pnpm
 # shellcheck disable=SC2016
 check "default is an lts release" bash -c '[ "$(node -p "process.release.lts ? 1 : 0")" = "1" ]'
+check "user is in the nodejs group" bash -c 'id -nG | tr " " "\n" | grep -qx nodejs'
 check "prefix is writable" bash -c 'touch /usr/local/node/bin/.write-test && rm /usr/local/node/bin/.write-test'
 # shellcheck disable=SC2016
-check "prefix owned by user" bash -c '[ "$(stat -c %U /usr/local/node)" = "$(id -un)" ]'
+check "prefix is not world writable" bash -c '[ "$(stat -c %A /usr/local/node/bin | cut -c9)" = "-" ]'
 
 reportResults
