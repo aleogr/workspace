@@ -24,14 +24,14 @@ jobs:
           docker run --rm
           -v "${{ github.workspace }}:/mnt"
           koalaman/shellcheck:v0.11.0
-          devcontainers/features/src/*/install.sh devcontainers/features/test/*/test.sh
+          devcontainers/features/src/*/install.sh devcontainers/features/test/*/*.sh
 
   Test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       matrix:
-        feature: [ base, claude, go, vscode ]
+        feature: [ base, claude, go, node, vscode ]
     steps:
       - name: Checkout git repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

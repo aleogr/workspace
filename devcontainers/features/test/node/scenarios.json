@@ -1,0 +1,11 @@
+{
+  "node_pinned_without_corepack": {
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+    "features": {
+      "node": {
+        "nodeVersion": "22.11.0",
+        "enableCorepack": false
+      }
+    }
+  }
+}
