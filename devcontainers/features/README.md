@@ -77,6 +77,31 @@ Go toolchain and golangci-lint, with VS Code Go settings
 </details>
 
 
+<!-- node -->
+
+<details name="features">
+
+<summary>node</summary>
+<br />
+
+Node.js runtime and npm, with Corepack enabling yarn and pnpm per project
+
+```json
+{
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/aleogr/workspace/features/node:1": {}
+  }
+}
+```
+
+> **`nodeVersion`** · `lts` · Node.js version ('lts' resolves the newest LTS release, 'latest' the newest current release)
+
+> **`enableCorepack`** · `true` · Enable Corepack so yarn and pnpm follow each project's `packageManager` field
+
+</details>
+
+
 <!-- vscode -->
 
 <details name="features">

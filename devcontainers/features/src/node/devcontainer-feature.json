@@ -1,0 +1,44 @@
+{
+  "id": "node",
+  "version": "1.0.0",
+  "name": "Node.js Development Environment",
+  "description": "Installs the Node.js runtime with npm, and optionally enables Corepack so yarn and pnpm follow each project's packageManager field.",
+  "options": {
+    "nodeVersion": {
+      "type": "string",
+      "default": "lts",
+      "description": "Node.js version to install ('lts' resolves the newest LTS release, 'latest' the newest current release, or a specific version such as '22.11.0')."
+    },
+    "enableCorepack": {
+      "type": "boolean",
+      "default": true,
+      "description": "Enable Corepack so yarn and pnpm are available and pinned per project. Ignored on Node.js releases that no longer bundle Corepack."
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode"
+      ],
+      "settings": {
+        "npm.packageManager": "auto",
+        "[javascript]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode"
+        },
+        "[typescript]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode"
+        },
+        "[json]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode"
+        }
+      }
+    }
+  },
+  "containerEnv": {
+    "PATH": "/usr/local/node/bin:${PATH}"
+  },
+  "installsAfter": [
+    "ghcr.io/aleogr/workspace/features/base"
+  ]
+}
