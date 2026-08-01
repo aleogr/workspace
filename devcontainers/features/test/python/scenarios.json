@@ -1,0 +1,11 @@
+{
+  "python_pinned_without_ruff": {
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+    "features": {
+      "python": {
+        "pythonVersion": "3.12",
+        "installRuff": false
+      }
+    }
+  }
+}
